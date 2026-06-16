@@ -12,9 +12,11 @@ from typing import Any
 
 from .const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
+    CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
+    DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_SURPLUS_THRESHOLD_W,
 )
@@ -101,10 +103,52 @@ def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
     return out
 
 
+def rule_dehumidifier_off(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
+    """Suggest switching a dehumidifier off once its room is dry enough.
+
+    Only fires for rooms whose plug shows the dehumidifier actually running (so
+    we never tell you to turn off something that's already off, or a room with
+    no plug to tell). The gap to the "run it" threshold is a hysteresis band.
+    """
+    rooms = snapshot.get("dehumidifier_rooms") or []
+    off_threshold = cfg.get(
+        CONF_HUMIDITY_OFF_THRESHOLD_PCT, DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT
+    )
+    running_watts = cfg.get(
+        CONF_DEHUMIDIFIER_RUNNING_WATTS, DEFAULT_DEHUMIDIFIER_RUNNING_WATTS
+    )
+    out: list[AdviceCandidate] = []
+    for room in rooms:
+        humidity = room.get("humidity")
+        if humidity is None or humidity > off_threshold:
+            continue
+        power_w = room.get("power_w")
+        if power_w is None or power_w < running_watts:
+            continue  # not running (or unknown) — nothing to turn off
+        out.append(
+            AdviceCandidate(
+                key=f"dehumidifier_off:{room['entity_id']}",
+                category=Category.AIR_QUALITY,
+                urgency=Urgency.INFO,
+                message=(
+                    f"Humidity in {room['name']} is {round(humidity)}% — "
+                    "dry enough now, you can switch the dehumidifier off."
+                ),
+                data={
+                    "room": room["name"],
+                    "humidity": humidity,
+                    "off_threshold": off_threshold,
+                    "power_w": power_w,
+                },
+            )
+        )
+    return out
+
+
 # Single-result rules (return one candidate or None).
 RULES = (rule_solar_surplus,)
 # Multi-result rules (return a list of candidates).
-MULTI_RULES = (rule_dehumidifier,)
+MULTI_RULES = (rule_dehumidifier, rule_dehumidifier_off)
 
 
 def evaluate_rules(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:

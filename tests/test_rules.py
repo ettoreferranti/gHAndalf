@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ghandalf.const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
+    CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
 )
@@ -12,8 +13,11 @@ from custom_components.ghandalf.rules import (
     _exporting_w,
     evaluate_rules,
     rule_dehumidifier,
+    rule_dehumidifier_off,
     rule_solar_surplus,
 )
+
+_OFF = {CONF_HUMIDITY_OFF_THRESHOLD_PCT: 45, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
 
 _CFG = {CONF_SURPLUS_THRESHOLD_W: 1000}
 
@@ -183,6 +187,75 @@ def test_dehumidifier_handles_no_rooms():
 def test_dehumidifier_multiple_humid_rooms():
     out = rule_dehumidifier(_rooms(("A", 70.0), ("B", 80.0)), {})
     assert {c.data["room"] for c in out} == {"A", "B"}
+
+
+def test_off_fires_when_dry_and_running():
+    out = rule_dehumidifier_off(_rooms(("Base", 40.0, 250.0)), _OFF)
+    assert [c.data["room"] for c in out] == ["Base"]
+    c = out[0]
+    assert c.key == "dehumidifier_off:sensor.base"
+    assert c.category is Category.AIR_QUALITY
+    assert c.urgency is Urgency.INFO
+    assert c.message.startswith("Humidity in Base is 40%")
+    assert c.message.endswith("switch the dehumidifier off.")
+    assert c.data["power_w"] == 250.0
+    assert c.data["off_threshold"] == 45
+    assert c.data["humidity"] == 40.0
+
+
+def test_off_silent_when_dry_but_not_running():
+    assert rule_dehumidifier_off(_rooms(("Base", 40.0, 2.0)), _OFF) == []
+
+
+def test_off_silent_when_power_unknown():
+    assert rule_dehumidifier_off(_rooms(("Base", 40.0, None)), _OFF) == []
+
+
+def test_off_silent_when_not_dry():
+    assert rule_dehumidifier_off(_rooms(("Base", 55.0, 250.0)), _OFF) == []
+
+
+def test_off_silent_when_humidity_unknown():
+    assert rule_dehumidifier_off(_rooms(("Base", None, 250.0)), _OFF) == []
+
+
+def test_off_fires_at_humidity_boundary():
+    assert len(rule_dehumidifier_off(_rooms(("Base", 45.0, 250.0)), _OFF)) == 1
+
+
+def test_off_running_boundary_counts_as_running():
+    assert len(rule_dehumidifier_off(_rooms(("Base", 40.0, 10.0)), _OFF)) == 1
+
+
+def test_off_uses_default_thresholds():
+    # No off-threshold/running-watts in cfg -> defaults 45 / 10.
+    assert len(rule_dehumidifier_off(_rooms(("Base", 44.0, 50.0)), {})) == 1
+    assert rule_dehumidifier_off(_rooms(("Base", 50.0, 50.0)), {}) == []  # not dry
+    assert rule_dehumidifier_off(_rooms(("Base", 40.0, 5.0)), {}) == []  # not running
+
+
+def test_off_humid_room_does_not_block_later_room():
+    snap = _rooms(("Humid", 55.0, 250.0), ("Dry", 40.0, 250.0))
+    assert [c.data["room"] for c in rule_dehumidifier_off(snap, _OFF)] == ["Dry"]
+
+
+def test_off_idle_room_does_not_block_later_room():
+    snap = _rooms(("Idle", 40.0, 2.0), ("Running", 40.0, 250.0))
+    assert [c.data["room"] for c in rule_dehumidifier_off(snap, _OFF)] == ["Running"]
+
+
+def test_off_and_run_are_mutually_exclusive():
+    # Dry + running -> only "off"; humid + not running -> only "run".
+    run_cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, **_OFF}
+    dry = _rooms(("Base", 40.0, 250.0))
+    assert rule_dehumidifier(dry, run_cfg) == []
+    assert len(rule_dehumidifier_off(dry, run_cfg)) == 1
+
+
+def test_evaluate_rules_includes_off_rule():
+    snap = {"net_grid_w": 0.0, "surplus_w": 0.0, **_rooms(("Base", 40.0, 250.0))}
+    keys = {a.key for a in evaluate_rules(snap, _OFF)}
+    assert "dehumidifier_off:sensor.base" in keys
 
 
 def test_evaluate_rules_collects_single_and_multi():

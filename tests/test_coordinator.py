@@ -220,3 +220,42 @@ async def test_dehumidifier_suppressed_when_plug_running(hass: HomeAssistant) ->
     assert data["dehumidifier_rooms"][0]["power_w"] == 250.0
     # ...and because it's running, no advice is produced.
     assert not any(a["key"].startswith("dehumidifier:") for a in data["advice"])
+
+
+async def test_dehumidifier_off_advice_when_dry_and_running(
+    hass: HomeAssistant,
+) -> None:
+    """A dry room whose plug is running gets a 'switch it off' nudge."""
+    area = ar.async_get(hass).async_get_or_create("Basement")
+    reg = er.async_get(hass)
+    hum = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "ho", suggested_object_id="b_hum_off"
+    )
+    pwr = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "po", suggested_object_id="b_plug_off"
+    )
+    reg.async_update_entity(hum.entity_id, area_id=area.id)
+    reg.async_update_entity(pwr.entity_id, area_id=area.id)
+    hass.states.async_set(hum.entity_id, "40", {"device_class": "humidity"})
+    hass.states.async_set(pwr.entity_id, "250", {"device_class": "power"})
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_DEHUMIDIFIER_SENSORS: [hum.entity_id],
+            CONF_DEHUMIDIFIER_POWER_SENSORS: [pwr.entity_id],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    advice = entry.runtime_data.data["advice"]
+    off = [a for a in advice if a["key"].startswith("dehumidifier_off:")]
+    assert len(off) == 1
+    assert "switch the dehumidifier off" in off[0]["message"]
