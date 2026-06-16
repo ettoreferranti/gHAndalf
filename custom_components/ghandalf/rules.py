@@ -11,8 +11,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from .const import (
+    CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
+    DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_SURPLUS_THRESHOLD_W,
 )
@@ -68,11 +70,17 @@ def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
     """
     rooms = snapshot.get("dehumidifier_rooms") or []
     threshold = cfg.get(CONF_HUMIDITY_THRESHOLD_PCT, DEFAULT_HUMIDITY_THRESHOLD_PCT)
+    running_watts = cfg.get(
+        CONF_DEHUMIDIFIER_RUNNING_WATTS, DEFAULT_DEHUMIDIFIER_RUNNING_WATTS
+    )
     out: list[AdviceCandidate] = []
     for room in rooms:
         humidity = room.get("humidity")
         if humidity is None or humidity < threshold:
             continue
+        power_w = room.get("power_w")
+        if power_w is not None and power_w >= running_watts:
+            continue  # the dehumidifier is already running — don't nag
         out.append(
             AdviceCandidate(
                 key=f"dehumidifier:{room['entity_id']}",
@@ -80,12 +88,13 @@ def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
                 urgency=Urgency.ACT,
                 message=(
                     f"Humidity in {room['name']} is {round(humidity)}% "
-                    f"(above {threshold}%). Time to run the dehumidifier."
+                    f"(above {threshold:g}%). Time to run the dehumidifier."
                 ),
                 data={
                     "room": room["name"],
                     "humidity": humidity,
                     "threshold": threshold,
+                    "power_w": power_w,
                 },
             )
         )

@@ -23,6 +23,8 @@ from .const import (
     CONF_CONSUMPTION_POWER,
     CONF_COOLDOWN_MINUTES,
     CONF_DEBOUNCE_SECONDS,
+    CONF_DEHUMIDIFIER_POWER_SENSORS,
+    CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
@@ -36,6 +38,7 @@ from .const import (
     CONF_SURPLUS_THRESHOLD_W,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
+    DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_MAX_NUDGES_PER_DAY,
     DEFAULT_QUIET_END,
@@ -61,6 +64,9 @@ _HUMIDITY_SENSORS = selector.EntitySelector(
         domain="sensor", device_class="humidity", multiple=True
     )
 )
+_POWER_SENSORS = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+)
 
 
 def _entity_schema() -> vol.Schema:
@@ -74,6 +80,7 @@ def _entity_schema() -> vol.Schema:
             vol.Optional(CONF_BATTERY_SOC): _BATTERY_SENSOR,
             vol.Optional(CONF_PERSONS): _PERSONS,
             vol.Optional(CONF_DEHUMIDIFIER_SENSORS): _HUMIDITY_SENSORS,
+            vol.Optional(CONF_DEHUMIDIFIER_POWER_SENSORS): _POWER_SENSORS,
         }
     )
 
@@ -103,6 +110,10 @@ def _tunables_schema() -> vol.Schema:
             vol.Optional(
                 CONF_HUMIDITY_THRESHOLD_PCT, default=DEFAULT_HUMIDITY_THRESHOLD_PCT
             ): _number(0, 100, 1, "%"),
+            vol.Optional(
+                CONF_DEHUMIDIFIER_RUNNING_WATTS,
+                default=DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
+            ): _number(0, 5000, 5, "W"),
             vol.Optional(
                 CONF_QUIET_START, default=DEFAULT_QUIET_START
             ): selector.TimeSelector(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from custom_components.ghandalf.const import (
+    CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
 )
@@ -18,12 +19,20 @@ _CFG = {CONF_SURPLUS_THRESHOLD_W: 1000}
 
 
 def _rooms(*pairs):
-    return {
-        "dehumidifier_rooms": [
-            {"entity_id": f"sensor.{n.lower()}", "name": n, "humidity": h}
-            for n, h in pairs
-        ]
-    }
+    """Build a snapshot. Each pair is (name, humidity) or (name, humidity, power_w)."""
+    rooms = []
+    for p in pairs:
+        name, humidity = p[0], p[1]
+        power_w = p[2] if len(p) > 2 else None
+        rooms.append(
+            {
+                "entity_id": f"sensor.{name.lower()}",
+                "name": name,
+                "humidity": humidity,
+                "power_w": power_w,
+            }
+        )
+    return {"dehumidifier_rooms": rooms}
 
 
 def test_exporting_w_clamps_import_to_zero():
@@ -108,6 +117,53 @@ def test_dehumidifier_skipped_room_does_not_block_later_room():
         _rooms(("Dry", 50.0), ("Wet", 70.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 60}
     )
     assert [c.data["room"] for c in out] == ["Wet"]
+
+
+def test_dehumidifier_suppressed_when_already_running():
+    cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
+    # humid (70%) but plug drawing 250 W -> already running -> no advice
+    assert rule_dehumidifier(_rooms(("Base", 70.0, 250.0)), cfg) == []
+
+
+def test_dehumidifier_fires_when_plug_idle():
+    cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
+    out = rule_dehumidifier(_rooms(("Base", 70.0, 2.0)), cfg)  # 2 W = off
+    assert [c.data["room"] for c in out] == ["Base"]
+    assert out[0].data["power_w"] == 2.0
+
+
+def test_dehumidifier_running_boundary_counts_as_running():
+    cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
+    # Exactly at the running threshold counts as running -> suppressed.
+    assert rule_dehumidifier(_rooms(("Base", 70.0, 10.0)), cfg) == []
+
+
+def test_dehumidifier_running_room_does_not_block_later_room():
+    cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
+    out = rule_dehumidifier(
+        _rooms(("Running", 70.0, 250.0), ("Idle", 70.0, 2.0)), cfg
+    )
+    assert [c.data["room"] for c in out] == ["Idle"]
+
+
+def test_dehumidifier_fires_when_power_unknown():
+    # No paired plug -> can't tell -> advise (safe default).
+    out = rule_dehumidifier(
+        _rooms(("Base", 70.0, None)), {CONF_HUMIDITY_THRESHOLD_PCT: 60}
+    )
+    assert len(out) == 1
+    assert out[0].data["power_w"] is None
+
+
+def test_dehumidifier_running_uses_default_watts():
+    # No running-watts in cfg -> default 10; 50 W counts as running -> suppressed.
+    assert rule_dehumidifier(_rooms(("Base", 70.0, 50.0)), {}) == []
+
+
+def test_dehumidifier_message_drops_trailing_zero():
+    out = rule_dehumidifier(_rooms(("R", 70.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 55.0})
+    assert "above 55%" in out[0].message
+    assert "55.0" not in out[0].message
 
 
 def test_dehumidifier_fires_at_exact_threshold():

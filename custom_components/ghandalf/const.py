@@ -26,11 +26,16 @@ CONF_PERSONS: Final = "persons"
 # Air quality & comfort (pillar 2). Humidity sensors for rooms that have a
 # dehumidifier — high humidity in one of these prompts "run the dehumidifier".
 CONF_DEHUMIDIFIER_SENSORS: Final = "dehumidifier_sensors"
+# Optional plug-power sensors for those dehumidifiers. Paired to a humidity room
+# by shared HA area; if the plug draws power, the room's advice is suppressed
+# (it's already running). Generic — no room is hardcoded.
+CONF_DEHUMIDIFIER_POWER_SENSORS: Final = "dehumidifier_power_sensors"
 
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
 CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
+CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"
 
 # Nudge-gate tunables (anti-alert-fatigue).
 CONF_QUIET_START: Final = "quiet_hours_start"
@@ -46,6 +51,7 @@ MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
 DEFAULT_HUMIDITY_THRESHOLD_PCT: Final = 60  # %RH above which to suggest dehumidifying
+DEFAULT_DEHUMIDIFIER_RUNNING_WATTS: Final = 10  # plug draw above which it's "running"
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"
