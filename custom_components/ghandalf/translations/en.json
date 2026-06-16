@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "gHAndalf — map your energy entities",
+        "description": "Choose the Home Assistant entities gHAndalf should read. You can add air-quality entities and tune thresholds later via Configure. Nothing is hardcoded.",
+        "data": {
+          "pv_production_power": "PV production power",
+          "household_consumption_power": "Household consumption power",
+          "grid_import_power": "Grid import power (optional)",
+          "grid_export_power": "Grid export power (optional)",
+          "battery_soc": "Battery state of charge (optional)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "gHAndalf is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "gHAndalf settings",
+        "description": "Re-map entities or retune values. Changes apply on save.",
+        "data": {
+          "pv_production_power": "PV production power",
+          "household_consumption_power": "Household consumption power",
+          "grid_import_power": "Grid import power (optional)",
+          "grid_export_power": "Grid export power (optional)",
+          "battery_soc": "Battery state of charge (optional)",
+          "scan_interval": "Scan interval",
+          "surplus_threshold_w": "Solar-surplus threshold"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "solar_surplus": { "name": "Solar surplus" },
+      "net_grid_power": { "name": "Net grid power" },
+      "status": { "name": "Status" }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# Test tooling. We pin the two anchors — Home Assistant and the HA test plugin —
+# and let the plugin choose its compatible pytest pin (it pins an exact version,
+# so we must not also pin pytest ourselves). Keeps CI reproducible while limiting
+# supply-chain surface (see REQUIREMENTS.md §13).
+homeassistant==2025.1.4
+pytest-homeassistant-custom-component==0.13.205
+pytest-cov
+ruff==0.8.4
