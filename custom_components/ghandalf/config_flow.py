@@ -21,11 +21,22 @@ import voluptuous as vol
 from .const import (
     CONF_BATTERY_SOC,
     CONF_CONSUMPTION_POWER,
+    CONF_COOLDOWN_MINUTES,
+    CONF_DEBOUNCE_SECONDS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
+    CONF_MAX_NUDGES_PER_DAY,
+    CONF_PERSONS,
     CONF_PV_POWER,
+    CONF_QUIET_END,
+    CONF_QUIET_START,
     CONF_SCAN_INTERVAL,
     CONF_SURPLUS_THRESHOLD_W,
+    DEFAULT_COOLDOWN_MINUTES,
+    DEFAULT_DEBOUNCE_SECONDS,
+    DEFAULT_MAX_NUDGES_PER_DAY,
+    DEFAULT_QUIET_END,
+    DEFAULT_QUIET_START,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SURPLUS_THRESHOLD_W,
     DOMAIN,
@@ -39,6 +50,9 @@ _POWER_SENSOR = selector.EntitySelector(
 _BATTERY_SENSOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="battery")
 )
+_PERSONS = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="person", multiple=True)
+)
 
 
 def _entity_schema() -> vol.Schema:
@@ -50,36 +64,48 @@ def _entity_schema() -> vol.Schema:
             vol.Optional(CONF_GRID_IMPORT_POWER): _POWER_SENSOR,
             vol.Optional(CONF_GRID_EXPORT_POWER): _POWER_SENSOR,
             vol.Optional(CONF_BATTERY_SOC): _BATTERY_SENSOR,
+            vol.Optional(CONF_PERSONS): _PERSONS,
         }
     )
 
 
+def _number(min_v: float, max_v: float, step: float, unit: str) -> selector.Selector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=min_v,
+            max=max_v,
+            step=step,
+            unit_of_measurement=unit,
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
 def _tunables_schema() -> vol.Schema:
-    """Numeric tunables, only offered in the options flow."""
+    """Numeric / time tunables, only offered in the options flow."""
     return vol.Schema(
         {
-            vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): (
-                selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_SCAN_INTERVAL,
-                        max=MAX_SCAN_INTERVAL,
-                        step=5,
-                        unit_of_measurement="s",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                )
+            vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): _number(
+                MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL, 5, "s"
             ),
             vol.Optional(
                 CONF_SURPLUS_THRESHOLD_W, default=DEFAULT_SURPLUS_THRESHOLD_W
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=20000,
-                    step=100,
-                    unit_of_measurement="W",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
+            ): _number(0, 20000, 100, "W"),
+            vol.Optional(
+                CONF_QUIET_START, default=DEFAULT_QUIET_START
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_QUIET_END, default=DEFAULT_QUIET_END
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_DEBOUNCE_SECONDS, default=DEFAULT_DEBOUNCE_SECONDS
+            ): _number(0, 3600, 30, "s"),
+            vol.Optional(
+                CONF_COOLDOWN_MINUTES, default=DEFAULT_COOLDOWN_MINUTES
+            ): _number(0, 1440, 5, "min"),
+            vol.Optional(
+                CONF_MAX_NUDGES_PER_DAY, default=DEFAULT_MAX_NUDGES_PER_DAY
+            ): _number(1, 50, 1, ""),
         }
     )
 

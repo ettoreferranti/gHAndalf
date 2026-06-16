@@ -2,7 +2,7 @@
 
 This is the heart of the "HA-native, source-agnostic" principle: gHAndalf reads
 the *live* state machine for whichever entities the user mapped — it never talks
-to a vendor API.
+to a vendor API. Each cycle it also runs the rule engine and the nudge gate.
 """
 
 from __future__ import annotations
@@ -14,18 +14,34 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_BATTERY_SOC,
     CONF_CONSUMPTION_POWER,
+    CONF_COOLDOWN_MINUTES,
+    CONF_DEBOUNCE_SECONDS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
+    CONF_MAX_NUDGES_PER_DAY,
+    CONF_PERSONS,
     CONF_PV_POWER,
+    CONF_QUIET_END,
+    CONF_QUIET_START,
     CONF_SCAN_INTERVAL,
+    CONF_SURPLUS_THRESHOLD_W,
+    DEFAULT_COOLDOWN_MINUTES,
+    DEFAULT_DEBOUNCE_SECONDS,
+    DEFAULT_MAX_NUDGES_PER_DAY,
+    DEFAULT_MAX_PER_CATEGORY_PER_DAY,
+    DEFAULT_QUIET_END,
+    DEFAULT_QUIET_START,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .helpers import get_conf, net_grid_w, parse_float, solar_surplus_w
+from .helpers import get_conf, net_grid_w, parse_float, parse_time, solar_surplus_w
+from .nudge_gate import NudgeGate
+from .rules import evaluate_rules
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +53,9 @@ _NUMERIC_ROLES: dict[str, str] = {
     "grid_export_w": CONF_GRID_EXPORT_POWER,
     "battery_soc": CONF_BATTERY_SOC,
 }
+
+# Config keys the rule engine reads, surfaced as a plain mapping.
+_RULE_CONFIG_KEYS = (CONF_SURPLUS_THRESHOLD_W,)
 
 
 class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -51,6 +70,31 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=interval),
         )
         self.entry = entry
+        self.gate = self._build_gate()
+
+    def _build_gate(self) -> NudgeGate:
+        return NudgeGate(
+            quiet_start=parse_time(
+                get_conf(self.entry, CONF_QUIET_START, DEFAULT_QUIET_START),
+                parse_time(DEFAULT_QUIET_START),
+            ),
+            quiet_end=parse_time(
+                get_conf(self.entry, CONF_QUIET_END, DEFAULT_QUIET_END),
+                parse_time(DEFAULT_QUIET_END),
+            ),
+            debounce_seconds=int(
+                get_conf(self.entry, CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
+            ),
+            cooldown_minutes=int(
+                get_conf(self.entry, CONF_COOLDOWN_MINUTES, DEFAULT_COOLDOWN_MINUTES)
+            ),
+            max_per_day=int(
+                get_conf(
+                    self.entry, CONF_MAX_NUDGES_PER_DAY, DEFAULT_MAX_NUDGES_PER_DAY
+                )
+            ),
+            max_per_category_per_day=DEFAULT_MAX_PER_CATEGORY_PER_DAY,
+        )
 
     def _read_role(self, config_key: str) -> float | None:
         """Read one mapped entity's current value as a float (or None)."""
@@ -62,8 +106,29 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return parse_float(state.state)
 
+    def _presence_home(self) -> bool:
+        """True if no persons are mapped, or any mapped person is home."""
+        persons = get_conf(self.entry, CONF_PERSONS) or []
+        if not persons:
+            return True
+        return any(
+            (state := self.hass.states.get(person)) is not None
+            and state.state == "home"
+            for person in persons
+        )
+
+    def _rule_config(self) -> dict[str, Any]:
+        # Omit unset keys so rules' own ``cfg.get(key, DEFAULT)`` fallbacks apply
+        # (injecting an explicit None would shadow those defaults).
+        cfg: dict[str, Any] = {}
+        for key in _RULE_CONFIG_KEYS:
+            value = get_conf(self.entry, key)
+            if value is not None:
+                cfg[key] = value
+        return cfg
+
     async def _async_update_data(self) -> dict[str, Any]:
-        """Sample all mapped entities and compute derived values.
+        """Sample mapped entities, derive values, and run rules + nudge gate.
 
         Never raises ``UpdateFailed`` on a missing sensor — gHAndalf is a coach,
         not a critical service, so it degrades gracefully and reports which
@@ -78,12 +143,20 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             values["grid_import_w"], values["grid_export_w"]
         )
 
-        # Which mapped roles failed to produce a reading this cycle.
         unavailable = [
             conf_key
             for key, conf_key in _NUMERIC_ROLES.items()
             if get_conf(self.entry, conf_key) and values[key] is None
         ]
         values["unavailable_roles"] = unavailable
+
+        # Rule engine -> candidates; nudge gate -> what would fire now.
+        candidates = evaluate_rules(values, self._rule_config())
+        presence_home = self._presence_home()
+        fired = self.gate.evaluate(candidates, dt_util.now(), presence_home)
+
+        values["presence_home"] = presence_home
+        values["advice"] = [c.as_dict() for c in candidates]
+        values["pending_nudges"] = [c.key for c in fired]
 
         return values

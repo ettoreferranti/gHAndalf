@@ -20,9 +20,19 @@ CONF_GRID_IMPORT_POWER: Final = "grid_import_power"
 CONF_GRID_EXPORT_POWER: Final = "grid_export_power"
 CONF_BATTERY_SOC: Final = "battery_soc"
 
+# Presence (optional): persons used to decide "is anyone home" for nudge-gating.
+CONF_PERSONS: Final = "persons"
+
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
+
+# Nudge-gate tunables (anti-alert-fatigue).
+CONF_QUIET_START: Final = "quiet_hours_start"
+CONF_QUIET_END: Final = "quiet_hours_end"
+CONF_DEBOUNCE_SECONDS: Final = "debounce_seconds"
+CONF_COOLDOWN_MINUTES: Final = "cooldown_minutes"
+CONF_MAX_NUDGES_PER_DAY: Final = "max_nudges_per_day"
 
 # --- Defaults (initial values only; all editable in the UI) -----------------
 DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
@@ -30,3 +40,13 @@ MIN_SCAN_INTERVAL: Final = 10
 MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
+
+DEFAULT_QUIET_START: Final = "22:00:00"
+DEFAULT_QUIET_END: Final = "07:00:00"
+DEFAULT_DEBOUNCE_SECONDS: Final = (
+    300  # a condition must persist this long before firing
+)
+DEFAULT_COOLDOWN_MINUTES: Final = 60  # min gap between repeats of the same advice
+DEFAULT_MAX_NUDGES_PER_DAY: Final = 8  # global daily cap across all categories
+# Per-category daily cap. Not exposed in the UI yet (kept simple); see REQUIREMENTS §8.
+DEFAULT_MAX_PER_CATEGORY_PER_DAY: Final = 3

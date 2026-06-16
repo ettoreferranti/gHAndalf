@@ -6,6 +6,7 @@ string value) so they are trivially unit- and mutation-testable.
 
 from __future__ import annotations
 
+from datetime import time
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -70,3 +71,33 @@ def net_grid_w(import_w: float | None, export_w: float | None) -> float | None:
     if import_w is None and export_w is None:
         return None
     return (import_w or 0.0) - (export_w or 0.0)
+
+
+def parse_time(value: str | time | None, default: time | None = None) -> time | None:
+    """Parse an ``"HH:MM[:SS]"`` string (as a TimeSelector returns) into a time."""
+    if isinstance(value, time):
+        return value
+    if not value:
+        return default
+    parts = str(value).split(":")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+        second = int(parts[2]) if len(parts) > 2 else 0
+        return time(hour, minute, second)
+    except (ValueError, IndexError):
+        return default
+
+
+def in_quiet_hours(now_t: time, start: time, end: time) -> bool:
+    """Whether ``now_t`` falls in the [start, end) quiet window.
+
+    Handles a window that wraps past midnight (e.g. 22:00-07:00). A zero-length
+    window (start == end) means "disabled" and is never quiet.
+    """
+    if start == end:
+        return False
+    # `<` vs `<=` here is an equivalent mutant: start == end already returned above.
+    if start < end:  # pragma: no mutate
+        return start <= now_t < end
+    return now_t >= start or now_t < end
