@@ -58,8 +58,13 @@
           "dehumidifier_running_watts": "Plug watts = running",
           "co2_sensors": "CO2 sensors (per room)",
           "window_sensors": "Window/door sensors",
-          "outdoor_temp_sensor": "Outdoor temperature",
-          "co2_threshold_ppm": "CO2 ventilate threshold"
+          "outdoor_temp_sensors": "Outdoor temperature (priority order)",
+          "outdoor_humidity_sensors": "Outdoor humidity (priority order)",
+          "indoor_temp_sensors": "Indoor temperature sensors",
+          "indoor_humidity_sensors": "Indoor humidity sensors",
+          "co2_threshold_ppm": "CO2 ventilate threshold",
+          "ventilate_min_outdoor_temp_c": "Min outdoor temp to vent",
+          "ventilate_max_outdoor_temp_c": "Max outdoor temp to vent"
         },
         "data_description": {
           "dehumidifier_sensors": "One per room that has a dehumidifier. The room name comes from each sensor's HA area.",
@@ -69,8 +74,13 @@
           "dehumidifier_running_watts": "Plug draw above which the dehumidifier counts as running. Default 10.",
           "co2_sensors": "One per room you want monitored. Room name comes from each sensor's HA area.",
           "window_sensors": "Optional. Paired to a room by shared HA area; gHAndalf skips the nudge when that room's window is already open.",
-          "outdoor_temp_sensor": "Optional. Added to the message for context (e.g. your garden sensor, or a weather entity).",
-          "co2_threshold_ppm": "At/above this ppm, suggest opening a window. Default 1000 (1000-1400 = act, 1400+ = stuffy)."
+          "outdoor_temp_sensors": "Optional, in priority order — the first with a reading wins (e.g. your garden sensor first, a weather entity as fallback). Shown in the message and used for the temperature gate.",
+          "outdoor_humidity_sensors": "Optional, same priority idea. With indoor humidity, lets gHAndalf skip the nudge when opening a window would only make the room more humid.",
+          "indoor_temp_sensors": "Optional. Paired to a CO2 room by shared HA area; used with indoor humidity to compare indoor vs outdoor air before advising.",
+          "indoor_humidity_sensors": "Optional. Paired to a CO2 room by shared HA area. Without a full indoor + outdoor humidity pair the moisture check is skipped (advice still fires).",
+          "co2_threshold_ppm": "At/above this ppm, suggest opening a window. Default 1000 (1000-1400 = act, 1400+ = stuffy).",
+          "ventilate_min_outdoor_temp_c": "Below this outdoor temp, skip the nudge (not worth the heat loss). Default 3. Lower it for aggressive winter CO2 control.",
+          "ventilate_max_outdoor_temp_c": "Above this outdoor temp, skip the nudge (outdoor air won't freshen or cool). Default 28."
         }
       },
       "presence": {

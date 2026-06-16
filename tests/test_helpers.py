@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from custom_components.ghandalf.helpers import (
+    absolute_humidity,
     get_conf,
     in_quiet_hours,
     net_grid_w,
@@ -139,3 +140,29 @@ def test_solar_surplus_w(pv, cons, expected):
 )
 def test_net_grid_w(imp, exp, expected):
     assert net_grid_w(imp, exp) == expected
+
+
+@pytest.mark.parametrize(
+    ("temp_c", "rh_pct", "expected"),
+    [
+        (20.0, 50.0, 8.64),  # reference: ~8.64 g/m^3
+        (0.0, 100.0, 4.85),  # saturated near freezing
+        (30.0, 80.0, 24.28),
+    ],
+)
+def test_absolute_humidity(temp_c, rh_pct, expected):
+    assert absolute_humidity(temp_c, rh_pct) == pytest.approx(expected, abs=0.01)
+
+
+def test_absolute_humidity_scales_with_rh():
+    # Linear in RH: doubling relative humidity doubles absolute humidity.
+    assert absolute_humidity(20.0, 80.0) == pytest.approx(
+        2 * absolute_humidity(20.0, 40.0), abs=0.001
+    )
+
+
+@pytest.mark.parametrize(
+    ("temp_c", "rh_pct"), [(None, 50.0), (20.0, None), (None, None)]
+)
+def test_absolute_humidity_missing_input(temp_c, rh_pct):
+    assert absolute_humidity(temp_c, rh_pct) is None

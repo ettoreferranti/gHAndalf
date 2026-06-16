@@ -39,14 +39,19 @@ from .const import (
     CONF_GRID_IMPORT_POWER,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_INDOOR_HUMIDITY_SENSORS,
+    CONF_INDOOR_TEMP_SENSORS,
     CONF_MAX_NUDGES_PER_DAY,
-    CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_OUTDOOR_HUMIDITY_SENSORS,
+    CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
     CONF_SCAN_INTERVAL,
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
+    CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
     CONF_WINDOW_SENSORS,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
@@ -79,6 +84,8 @@ _RULE_CONFIG_KEYS = (
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_CO2_THRESHOLD_PPM,
+    CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
+    CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
 )
 
 
@@ -129,6 +136,32 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state is None:
             return None
         return parse_float(state.state)
+
+    def _first_available(self, config_key: str) -> float | None:
+        """First parseable reading across a priority-ordered list of entities.
+
+        Lets the user prefer a local sensor and fall back to a weather service:
+        the first entity that yields a usable number wins.
+        """
+        for entity_id in get_conf(self.entry, config_key) or []:
+            state = self.hass.states.get(entity_id)
+            value = parse_float(state.state) if state else None
+            if value is not None:
+                return value
+        return None
+
+    def _first_value_by_area(self, config_key: str) -> dict[str, float]:
+        """Area id -> first parseable reading among that area's mapped sensors."""
+        values: dict[str, float] = {}
+        for entity_id in get_conf(self.entry, config_key) or []:
+            area_id = self._area_id(entity_id)
+            if area_id is None or area_id in values:
+                continue
+            state = self.hass.states.get(entity_id)
+            value = parse_float(state.state) if state else None
+            if value is not None:
+                values[area_id] = value
+        return values
 
     def _presence_home(self) -> bool:
         """True if no persons are mapped, or any mapped person is home."""
@@ -216,8 +249,14 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return areas
 
     def _read_co2_rooms(self) -> list[dict[str, Any]]:
-        """Read each mapped CO2 sensor, flagging whether its room is being aired."""
+        """Read each mapped CO2 sensor, flagging whether its room is being aired.
+
+        Indoor temperature/humidity are paired in by shared HA area so the rule
+        can compare indoor vs outdoor absolute humidity per room.
+        """
         open_areas = self._open_window_areas()
+        indoor_temps = self._first_value_by_area(CONF_INDOOR_TEMP_SENSORS)
+        indoor_humidities = self._first_value_by_area(CONF_INDOOR_HUMIDITY_SENSORS)
         rooms: list[dict[str, Any]] = []
         for entity_id in get_conf(self.entry, CONF_CO2_SENSORS) or []:
             state = self.hass.states.get(entity_id)
@@ -228,6 +267,12 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "name": self._room_name(entity_id),
                     "ppm": parse_float(state.state) if state else None,
                     "window_open": area_id is not None and area_id in open_areas,
+                    "indoor_temp": indoor_temps.get(area_id)
+                    if area_id is not None
+                    else None,
+                    "indoor_humidity": indoor_humidities.get(area_id)
+                    if area_id is not None
+                    else None,
                 }
             )
         return rooms
@@ -266,7 +311,10 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         values["unavailable_roles"] = unavailable
         values["dehumidifier_rooms"] = self._read_dehumidifier_rooms()
         values["co2_rooms"] = self._read_co2_rooms()
-        values["outdoor_temp"] = self._read_role(CONF_OUTDOOR_TEMP_SENSOR)
+        values["outdoor_temp"] = self._first_available(CONF_OUTDOOR_TEMP_SENSORS)
+        values["outdoor_humidity"] = self._first_available(
+            CONF_OUTDOOR_HUMIDITY_SENSORS
+        )
 
         # Rule engine -> candidates; nudge gate -> what would fire now.
         candidates = evaluate_rules(values, self._rule_config())

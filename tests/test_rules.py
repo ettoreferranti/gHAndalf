@@ -8,6 +8,8 @@ from custom_components.ghandalf.const import (
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
+    CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
 )
 from custom_components.ghandalf.models import Category, Urgency
 from custom_components.ghandalf.rules import (
@@ -23,8 +25,14 @@ _OFF = {CONF_HUMIDITY_OFF_THRESHOLD_PCT: 45, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10
 _CO2 = {CONF_CO2_THRESHOLD_PPM: 1000}
 
 
-def _co2_snap(*rooms, outdoor=None):
-    """Each room is (name, ppm) or (name, ppm, window_open)."""
+def _co2_snap(
+    *rooms, outdoor=None, outdoor_humidity=None, indoor_temp=None, indoor_humidity=None
+):
+    """Each room is (name, ppm) or (name, ppm, window_open).
+
+    Indoor temp/humidity (for the moisture gate) apply to every room; the outdoor
+    values live at the snapshot level.
+    """
     out = []
     for r in rooms:
         window_open = r[2] if len(r) > 2 else False
@@ -34,9 +42,15 @@ def _co2_snap(*rooms, outdoor=None):
                 "name": r[0],
                 "ppm": r[1],
                 "window_open": window_open,
+                "indoor_temp": indoor_temp,
+                "indoor_humidity": indoor_humidity,
             }
         )
-    return {"co2_rooms": out, "outdoor_temp": outdoor}
+    return {
+        "co2_rooms": out,
+        "outdoor_temp": outdoor,
+        "outdoor_humidity": outdoor_humidity,
+    }
 
 
 _CFG = {CONF_SURPLUS_THRESHOLD_W: 1000}
@@ -344,6 +358,122 @@ def test_evaluate_rules_includes_co2():
     snap = {"net_grid_w": 0.0, "surplus_w": 0.0, **_co2_snap(("Office", 1200.0))}
     keys = {a.key for a in evaluate_rules(snap, _CO2)}
     assert "co2:sensor.office" in keys
+
+
+# --- outdoor-air gate: temperature band -------------------------------------
+def test_co2_suppressed_when_outside_too_cold():
+    snap = _co2_snap(("Office", 1500.0), outdoor=2.0)  # below default min 3
+    assert rule_co2_ventilate(snap, _CO2) == []
+
+
+def test_co2_suppressed_when_outside_too_hot():
+    snap = _co2_snap(("Office", 1500.0), outdoor=29.0)  # above default max 28
+    assert rule_co2_ventilate(snap, _CO2) == []
+
+
+def test_co2_fires_at_temp_band_edges():
+    at_min = rule_co2_ventilate(_co2_snap(("Office", 1500.0), outdoor=3.0), _CO2)
+    at_max = rule_co2_ventilate(_co2_snap(("Office", 1500.0), outdoor=28.0), _CO2)
+    assert len(at_min) == 1
+    assert len(at_max) == 1
+
+
+def test_co2_temp_band_is_configurable():
+    cfg = {
+        CONF_CO2_THRESHOLD_PPM: 1000,
+        CONF_VENTILATE_MIN_OUTDOOR_TEMP_C: 10,
+        CONF_VENTILATE_MAX_OUTDOOR_TEMP_C: 20,
+    }
+    assert rule_co2_ventilate(_co2_snap(("Office", 1500.0), outdoor=8.0), cfg) == []
+    assert rule_co2_ventilate(_co2_snap(("Office", 1500.0), outdoor=25.0), cfg) == []
+    within = rule_co2_ventilate(_co2_snap(("Office", 1500.0), outdoor=15.0), cfg)
+    assert len(within) == 1
+
+
+def test_co2_no_temp_gate_when_outdoor_temp_unknown():
+    # Outdoor temp missing -> can't judge the band -> stay default-open and fire.
+    assert len(rule_co2_ventilate(_co2_snap(("Office", 1500.0)), _CO2)) == 1
+
+
+# --- outdoor-air gate: moisture import --------------------------------------
+def test_co2_suppressed_when_venting_imports_moisture():
+    # Indoor 21 C/40% is drier (lower absolute humidity) than outdoor 10 C/95%.
+    snap = _co2_snap(
+        ("Office", 1500.0),
+        outdoor=10.0,
+        outdoor_humidity=95.0,
+        indoor_temp=21.0,
+        indoor_humidity=40.0,
+    )
+    assert rule_co2_ventilate(snap, _CO2) == []
+
+
+def test_co2_fires_when_outdoor_air_is_drier():
+    snap = _co2_snap(
+        ("Office", 1500.0),
+        outdoor=10.0,
+        outdoor_humidity=30.0,
+        indoor_temp=21.0,
+        indoor_humidity=40.0,
+    )
+    out = rule_co2_ventilate(snap, _CO2)
+    assert len(out) == 1
+    assert out[0].data["outdoor_humidity"] == 30.0
+
+
+def test_co2_fires_when_absolute_humidity_is_equal():
+    # Same temp + RH indoors and out -> equal absolute humidity -> not suppressed.
+    snap = _co2_snap(
+        ("Office", 1500.0),
+        outdoor=18.0,
+        outdoor_humidity=50.0,
+        indoor_temp=18.0,
+        indoor_humidity=50.0,
+    )
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_no_moisture_gate_when_indoor_data_missing():
+    # Outdoor humidity known but no indoor pair -> moisture check skipped, fires.
+    snap = _co2_snap(("Office", 1500.0), outdoor=10.0, outdoor_humidity=95.0)
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_no_moisture_gate_when_outdoor_humidity_missing():
+    snap = _co2_snap(
+        ("Office", 1500.0), outdoor=10.0, indoor_temp=21.0, indoor_humidity=40.0
+    )
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_gate_blocked_room_does_not_block_later_room():
+    # A room the outdoor-air gate blocks must not stop a later room from firing.
+    # Outdoor is muggy (10 C/95%); the first room's drier indoor air gets gated
+    # on moisture, the second has no indoor pair so only the (passing) temp band
+    # applies and it should still fire.
+    snap = {
+        "outdoor_temp": 10.0,
+        "outdoor_humidity": 95.0,
+        "co2_rooms": [
+            {
+                "entity_id": "sensor.muggy",
+                "name": "Muggy",
+                "ppm": 1500.0,
+                "window_open": False,
+                "indoor_temp": 21.0,
+                "indoor_humidity": 40.0,
+            },
+            {
+                "entity_id": "sensor.stuffy",
+                "name": "Stuffy",
+                "ppm": 1500.0,
+                "window_open": False,
+                "indoor_temp": None,
+                "indoor_humidity": None,
+            },
+        ],
+    }
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2)] == ["Stuffy"]
 
 
 def test_evaluate_rules_collects_single_and_multi():

@@ -34,8 +34,17 @@ CONF_DEHUMIDIFIER_POWER_SENSORS: Final = "dehumidifier_power_sensors"
 # paired by area to suppress the nudge when a window in that room is already open.
 CONF_CO2_SENSORS: Final = "co2_sensors"
 CONF_WINDOW_SENSORS: Final = "window_sensors"
-# Optional outdoor temperature, surfaced in the ventilate message for context.
-CONF_OUTDOOR_TEMP_SENSOR: Final = "outdoor_temp_sensor"
+# Outdoor reference, as priority-ordered lists (first available entity wins) so a
+# local sensor can be preferred with a weather service as fallback. Temperature
+# is surfaced in the ventilate message and, with humidity, decides whether opening
+# a window is actually worth it (see the ventilate gates below).
+CONF_OUTDOOR_TEMP_SENSORS: Final = "outdoor_temp_sensors"
+CONF_OUTDOOR_HUMIDITY_SENSORS: Final = "outdoor_humidity_sensors"
+# Optional indoor temperature/humidity, paired to a CO2 room by shared HA area.
+# Used to compare indoor vs outdoor absolute humidity so we don't advise airing a
+# room out when that would only make it more humid.
+CONF_INDOOR_TEMP_SENSORS: Final = "indoor_temp_sensors"
+CONF_INDOOR_HUMIDITY_SENSORS: Final = "indoor_humidity_sensors"
 
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
@@ -44,6 +53,10 @@ CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
 CONF_HUMIDITY_OFF_THRESHOLD_PCT: Final = "humidity_off_threshold_pct"
 CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"
 CONF_CO2_THRESHOLD_PPM: Final = "co2_threshold_ppm"
+# Outdoor temperature band within which airing a room out is worthwhile; outside
+# it (too cold / too hot) the ventilate nudge is suppressed.
+CONF_VENTILATE_MIN_OUTDOOR_TEMP_C: Final = "ventilate_min_outdoor_temp_c"
+CONF_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = "ventilate_max_outdoor_temp_c"
 
 # Nudge-gate tunables (anti-alert-fatigue).
 CONF_QUIET_START: Final = "quiet_hours_start"
@@ -64,6 +77,11 @@ DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT: Final = (
 )
 DEFAULT_DEHUMIDIFIER_RUNNING_WATTS: Final = 10  # plug draw above which it's "running"
 DEFAULT_CO2_THRESHOLD_PPM: Final = 1000  # ppm above which to suggest ventilating
+# Below the min it's too cold to bother (heat loss); above the max, outdoor air
+# won't freshen/cool. Both editable — set the min lower for aggressive winter CO2
+# control (brief "shock airing" is fine even when cold).
+DEFAULT_VENTILATE_MIN_OUTDOOR_TEMP_C: Final = 3
+DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = 28
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"

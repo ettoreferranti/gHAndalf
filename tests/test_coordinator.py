@@ -17,7 +17,10 @@ from custom_components.ghandalf.const import (
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
     CONF_HUMIDITY_THRESHOLD_PCT,
-    CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_INDOOR_HUMIDITY_SENSORS,
+    CONF_INDOOR_TEMP_SENSORS,
+    CONF_OUTDOOR_HUMIDITY_SENSORS,
+    CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
@@ -292,7 +295,7 @@ async def test_co2_advice_with_outdoor_and_window_suppression(
             CONF_CONSUMPTION_POWER: "sensor.cons",
             CONF_CO2_SENSORS: [co2.entity_id],
             CONF_WINDOW_SENSORS: [win.entity_id],
-            CONF_OUTDOOR_TEMP_SENSOR: "sensor.outdoor",
+            CONF_OUTDOOR_TEMP_SENSORS: ["sensor.outdoor"],
         },
     )
     entry.add_to_hass(hass)
@@ -310,3 +313,83 @@ async def test_co2_advice_with_outdoor_and_window_suppression(
     await entry.runtime_data.async_refresh()
     advice = entry.runtime_data.data["advice"]
     assert not any(a["key"].startswith("co2:") for a in advice)
+
+
+async def test_outdoor_temp_uses_priority_fallback(hass: HomeAssistant) -> None:
+    """First entity with a reading wins; an unavailable primary falls through."""
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+    hass.states.async_set(
+        "sensor.local_temp", "unavailable", {"device_class": "temperature"}
+    )
+    hass.states.async_set("sensor.weather_temp", "12", {"device_class": "temperature"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_OUTDOOR_TEMP_SENSORS: ["sensor.local_temp", "sensor.weather_temp"],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Primary unavailable -> fell through to the weather fallback.
+    assert entry.runtime_data.data["outdoor_temp"] == 12.0
+
+
+async def test_co2_advice_suppressed_when_venting_would_import_moisture(
+    hass: HomeAssistant,
+) -> None:
+    """Indoor/outdoor humidity (paired by area) gates the nudge; drier air re-fires."""
+    area = ar.async_get(hass).async_get_or_create("Office")
+    reg = er.async_get(hass)
+    co2 = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "co2", suggested_object_id="office_co2"
+    )
+    in_t = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "in_t", suggested_object_id="office_temp"
+    )
+    in_h = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "in_h", suggested_object_id="office_humidity"
+    )
+    for ent in (co2, in_t, in_h):
+        reg.async_update_entity(ent.entity_id, area_id=area.id)
+    hass.states.async_set(co2.entity_id, "1300", {"device_class": "carbon_dioxide"})
+    hass.states.async_set(in_t.entity_id, "21", {"device_class": "temperature"})
+    hass.states.async_set(in_h.entity_id, "40", {"device_class": "humidity"})
+    # Outdoor 10 °C is inside the temp band, so only the moisture gate is in play.
+    hass.states.async_set("sensor.out_t", "10", {"device_class": "temperature"})
+    hass.states.async_set("sensor.out_h", "95", {"device_class": "humidity"})  # muggy
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_CO2_SENSORS: [co2.entity_id],
+            CONF_OUTDOOR_TEMP_SENSORS: ["sensor.out_t"],
+            CONF_OUTDOOR_HUMIDITY_SENSORS: ["sensor.out_h"],
+            CONF_INDOOR_TEMP_SENSORS: [in_t.entity_id],
+            CONF_INDOOR_HUMIDITY_SENSORS: [in_h.entity_id],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Muggy outside (more absolute moisture than the room) -> suppressed.
+    advice = entry.runtime_data.data["advice"]
+    assert not any(a["key"].startswith("co2:") for a in advice)
+
+    # Dry the outdoor air -> airing out now helps -> advice fires.
+    hass.states.async_set("sensor.out_h", "30", {"device_class": "humidity"})
+    await entry.runtime_data.async_refresh()
+    advice = entry.runtime_data.data["advice"]
+    assert any(a["key"].startswith("co2:") for a in advice)
