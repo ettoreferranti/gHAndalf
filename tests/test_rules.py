@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from custom_components.ghandalf.const import (
+    CONF_CO2_THRESHOLD_PPM,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
@@ -12,12 +13,31 @@ from custom_components.ghandalf.models import Category, Urgency
 from custom_components.ghandalf.rules import (
     _exporting_w,
     evaluate_rules,
+    rule_co2_ventilate,
     rule_dehumidifier,
     rule_dehumidifier_off,
     rule_solar_surplus,
 )
 
 _OFF = {CONF_HUMIDITY_OFF_THRESHOLD_PCT: 45, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
+_CO2 = {CONF_CO2_THRESHOLD_PPM: 1000}
+
+
+def _co2_snap(*rooms, outdoor=None):
+    """Each room is (name, ppm) or (name, ppm, window_open)."""
+    out = []
+    for r in rooms:
+        window_open = r[2] if len(r) > 2 else False
+        out.append(
+            {
+                "entity_id": f"sensor.{r[0].lower()}",
+                "name": r[0],
+                "ppm": r[1],
+                "window_open": window_open,
+            }
+        )
+    return {"co2_rooms": out, "outdoor_temp": outdoor}
+
 
 _CFG = {CONF_SURPLUS_THRESHOLD_W: 1000}
 
@@ -256,6 +276,74 @@ def test_evaluate_rules_includes_off_rule():
     snap = {"net_grid_w": 0.0, "surplus_w": 0.0, **_rooms(("Base", 40.0, 250.0))}
     keys = {a.key for a in evaluate_rules(snap, _OFF)}
     assert "dehumidifier_off:sensor.base" in keys
+
+
+def test_co2_fires_when_high_and_window_closed():
+    out = rule_co2_ventilate(_co2_snap(("Office", 1200.0)), _CO2)
+    assert [c.data["room"] for c in out] == ["Office"]
+    c = out[0]
+    assert c.key == "co2:sensor.office"
+    assert c.category is Category.AIR_QUALITY
+    assert c.urgency is Urgency.ACT
+    assert c.message.startswith("CO2 in Office is 1200 ppm")
+    assert c.message.endswith("freshen the air.")
+    assert c.data["ppm"] == 1200.0
+    assert c.data["threshold"] == 1000
+
+
+def test_co2_silent_below_threshold():
+    assert rule_co2_ventilate(_co2_snap(("Office", 800.0)), _CO2) == []
+
+
+def test_co2_fires_at_threshold_boundary():
+    assert len(rule_co2_ventilate(_co2_snap(("Office", 1000.0)), _CO2)) == 1
+
+
+def test_co2_silent_when_window_open():
+    assert rule_co2_ventilate(_co2_snap(("Office", 1500.0, True)), _CO2) == []
+
+
+def test_co2_silent_when_ppm_unknown():
+    assert rule_co2_ventilate(_co2_snap(("Office", None)), _CO2) == []
+
+
+def test_co2_uses_default_threshold():
+    assert len(rule_co2_ventilate(_co2_snap(("Office", 1100.0)), {})) == 1  # default
+    assert rule_co2_ventilate(_co2_snap(("Office", 900.0)), {}) == []
+
+
+def test_co2_message_includes_outdoor_temp_when_present():
+    out = rule_co2_ventilate(_co2_snap(("Office", 1200.0), outdoor=18.4), _CO2)
+    assert out[0].message.startswith("CO2 in Office")  # the CO2 part is kept
+    assert out[0].message.endswith("It's about 18° outside.")
+    assert out[0].data["outdoor_temp"] == 18.4
+
+
+def test_co2_message_omits_outdoor_when_absent():
+    out = rule_co2_ventilate(_co2_snap(("Office", 1200.0), outdoor=None), _CO2)
+    assert "outside" not in out[0].message
+    assert out[0].data["outdoor_temp"] is None
+
+
+def test_co2_fresh_room_does_not_block_later_room():
+    snap = _co2_snap(("Fresh", 800.0), ("Stuffy", 1300.0))
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2)] == ["Stuffy"]
+
+
+def test_co2_vented_room_does_not_block_later_room():
+    snap = _co2_snap(("Vented", 1300.0, True), ("Stuffy", 1300.0, False))
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2)] == ["Stuffy"]
+
+
+def test_co2_no_rooms():
+    assert rule_co2_ventilate({}, {}) == []
+    assert rule_co2_ventilate({"co2_rooms": []}, {}) == []
+
+
+def test_evaluate_rules_includes_co2():
+    snap = {"net_grid_w": 0.0, "surplus_w": 0.0, **_co2_snap(("Office", 1200.0))}
+    keys = {a.key for a in evaluate_rules(snap, _CO2)}
+    assert "co2:sensor.office" in keys
 
 
 def test_evaluate_rules_collects_single_and_multi():

@@ -27,6 +27,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_BATTERY_SOC,
+    CONF_CO2_SENSORS,
+    CONF_CO2_THRESHOLD_PPM,
     CONF_CONSUMPTION_POWER,
     CONF_COOLDOWN_MINUTES,
     CONF_DEBOUNCE_SECONDS,
@@ -38,12 +40,14 @@ from .const import (
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
     CONF_SCAN_INTERVAL,
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_WINDOW_SENSORS,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_MAX_NUDGES_PER_DAY,
@@ -74,6 +78,7 @@ _RULE_CONFIG_KEYS = (
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
+    CONF_CO2_THRESHOLD_PPM,
 )
 
 
@@ -199,6 +204,34 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return rooms
 
+    def _open_window_areas(self) -> set[str]:
+        """Area ids that currently have at least one mapped window open."""
+        areas: set[str] = set()
+        for entity_id in get_conf(self.entry, CONF_WINDOW_SENSORS) or []:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == "on":
+                area_id = self._area_id(entity_id)
+                if area_id is not None:
+                    areas.add(area_id)
+        return areas
+
+    def _read_co2_rooms(self) -> list[dict[str, Any]]:
+        """Read each mapped CO2 sensor, flagging whether its room is being aired."""
+        open_areas = self._open_window_areas()
+        rooms: list[dict[str, Any]] = []
+        for entity_id in get_conf(self.entry, CONF_CO2_SENSORS) or []:
+            state = self.hass.states.get(entity_id)
+            area_id = self._area_id(entity_id)
+            rooms.append(
+                {
+                    "entity_id": entity_id,
+                    "name": self._room_name(entity_id),
+                    "ppm": parse_float(state.state) if state else None,
+                    "window_open": area_id is not None and area_id in open_areas,
+                }
+            )
+        return rooms
+
     def _rule_config(self) -> dict[str, Any]:
         # Omit unset keys so rules' own ``cfg.get(key, DEFAULT)`` fallbacks apply
         # (injecting an explicit None would shadow those defaults).
@@ -232,6 +265,8 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]
         values["unavailable_roles"] = unavailable
         values["dehumidifier_rooms"] = self._read_dehumidifier_rooms()
+        values["co2_rooms"] = self._read_co2_rooms()
+        values["outdoor_temp"] = self._read_role(CONF_OUTDOOR_TEMP_SENSOR)
 
         # Rule engine -> candidates; nudge gate -> what would fire now.
         candidates = evaluate_rules(values, self._rule_config())

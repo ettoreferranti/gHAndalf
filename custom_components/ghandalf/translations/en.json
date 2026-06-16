@@ -55,14 +55,22 @@
           "dehumidifier_power_sensors": "Dehumidifier plug-power sensors",
           "humidity_threshold_pct": "Run-it humidity threshold",
           "humidity_off_threshold_pct": "Turn-it-off humidity threshold",
-          "dehumidifier_running_watts": "Plug watts = running"
+          "dehumidifier_running_watts": "Plug watts = running",
+          "co2_sensors": "CO2 sensors (per room)",
+          "window_sensors": "Window/door sensors",
+          "outdoor_temp_sensor": "Outdoor temperature",
+          "co2_threshold_ppm": "CO2 ventilate threshold"
         },
         "data_description": {
           "dehumidifier_sensors": "One per room that has a dehumidifier. The room name comes from each sensor's HA area.",
           "dehumidifier_power_sensors": "Optional. Paired to a room by shared HA area; lets gHAndalf skip the nudge when it's already on.",
           "humidity_threshold_pct": "At/above this %, suggest running the dehumidifier. Default 60.",
           "humidity_off_threshold_pct": "At/below this %, suggest turning it off (if its plug shows it running). Default 45. The gap to the run-it value avoids on/off flapping.",
-          "dehumidifier_running_watts": "Plug draw above which the dehumidifier counts as running. Default 10."
+          "dehumidifier_running_watts": "Plug draw above which the dehumidifier counts as running. Default 10.",
+          "co2_sensors": "One per room you want monitored. Room name comes from each sensor's HA area.",
+          "window_sensors": "Optional. Paired to a room by shared HA area; gHAndalf skips the nudge when that room's window is already open.",
+          "outdoor_temp_sensor": "Optional. Added to the message for context (e.g. your garden sensor, or a weather entity).",
+          "co2_threshold_ppm": "At/above this ppm, suggest opening a window. Default 1000 (1000-1400 = act, 1400+ = stuffy)."
         }
       },
       "presence": {

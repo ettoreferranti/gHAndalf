@@ -11,10 +11,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from .const import (
+    CONF_CO2_THRESHOLD_PPM,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
+    DEFAULT_CO2_THRESHOLD_PPM,
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
@@ -145,10 +147,50 @@ def rule_dehumidifier_off(snapshot: Snapshot, cfg: Config) -> list[AdviceCandida
     return out
 
 
+def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
+    """Suggest airing a room out when its CO2 is high and no window is open.
+
+    Window state is paired to the room by HA area (in the coordinator), so we
+    don't nag when the room is already being ventilated. Outdoor temperature, if
+    mapped, is added to the message for context.
+    """
+    rooms = snapshot.get("co2_rooms") or []
+    threshold = cfg.get(CONF_CO2_THRESHOLD_PPM, DEFAULT_CO2_THRESHOLD_PPM)
+    outdoor = snapshot.get("outdoor_temp")
+    out: list[AdviceCandidate] = []
+    for room in rooms:
+        ppm = room.get("ppm")
+        if ppm is None or ppm < threshold:
+            continue
+        if room.get("window_open"):
+            continue  # already being aired out
+        message = (
+            f"CO2 in {room['name']} is {round(ppm)} ppm — "
+            "open a window for a few minutes to freshen the air."
+        )
+        if outdoor is not None:
+            message += f" It's about {round(outdoor)}° outside."
+        out.append(
+            AdviceCandidate(
+                key=f"co2:{room['entity_id']}",
+                category=Category.AIR_QUALITY,
+                urgency=Urgency.ACT,
+                message=message,
+                data={
+                    "room": room["name"],
+                    "ppm": ppm,
+                    "threshold": threshold,
+                    "outdoor_temp": outdoor,
+                },
+            )
+        )
+    return out
+
+
 # Single-result rules (return one candidate or None).
 RULES = (rule_solar_surplus,)
 # Multi-result rules (return a list of candidates).
-MULTI_RULES = (rule_dehumidifier, rule_dehumidifier_off)
+MULTI_RULES = (rule_dehumidifier, rule_dehumidifier_off, rule_co2_ventilate)
 
 
 def evaluate_rules(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:

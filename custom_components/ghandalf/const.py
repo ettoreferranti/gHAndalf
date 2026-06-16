@@ -30,6 +30,12 @@ CONF_DEHUMIDIFIER_SENSORS: Final = "dehumidifier_sensors"
 # by shared HA area; if the plug draws power, the room's advice is suppressed
 # (it's already running). Generic — no room is hardcoded.
 CONF_DEHUMIDIFIER_POWER_SENSORS: Final = "dehumidifier_power_sensors"
+# CO2 sensors (per room) — high CO2 prompts "open a window". Window sensors are
+# paired by area to suppress the nudge when a window in that room is already open.
+CONF_CO2_SENSORS: Final = "co2_sensors"
+CONF_WINDOW_SENSORS: Final = "window_sensors"
+# Optional outdoor temperature, surfaced in the ventilate message for context.
+CONF_OUTDOOR_TEMP_SENSOR: Final = "outdoor_temp_sensor"
 
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
@@ -37,6 +43,7 @@ CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
 CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
 CONF_HUMIDITY_OFF_THRESHOLD_PCT: Final = "humidity_off_threshold_pct"
 CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"
+CONF_CO2_THRESHOLD_PPM: Final = "co2_threshold_ppm"
 
 # Nudge-gate tunables (anti-alert-fatigue).
 CONF_QUIET_START: Final = "quiet_hours_start"
@@ -56,6 +63,7 @@ DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT: Final = (
     45  # %RH at/below which to suggest turning off
 )
 DEFAULT_DEHUMIDIFIER_RUNNING_WATTS: Final = 10  # plug draw above which it's "running"
+DEFAULT_CO2_THRESHOLD_PPM: Final = 1000  # ppm above which to suggest ventilating
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"
