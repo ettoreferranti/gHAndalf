@@ -2,17 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "title": "gHAndalf — map your energy entities",
-        "description": "Choose the Home Assistant entities gHAndalf should read. You can add air-quality entities and tune thresholds later via Configure. Nothing is hardcoded.",
+        "title": "gHAndalf — get started",
+        "description": "Map the two essentials and you're running. Everything else (air quality, presence, nudge timing) is grouped under Configure afterwards.",
         "data": {
           "pv_production_power": "PV production power",
-          "household_consumption_power": "Household consumption power",
-          "grid_import_power": "Grid import power (optional)",
-          "grid_export_power": "Grid export power (optional)",
-          "battery_soc": "Battery state of charge (optional)",
-          "persons": "People for presence (optional)",
-          "dehumidifier_sensors": "Humidity sensors in rooms with a dehumidifier (optional)",
-          "dehumidifier_power_sensors": "Dehumidifier plug-power sensors — paired by area (optional)"
+          "household_consumption_power": "Household consumption power"
+        },
+        "data_description": {
+          "pv_production_power": "The sensor reporting how much your solar is generating, in watts.",
+          "household_consumption_power": "The sensor reporting how much the house is using, in watts."
         }
       }
     },
@@ -24,26 +22,76 @@
     "step": {
       "init": {
         "title": "gHAndalf settings",
-        "description": "Re-map entities or retune values. Changes apply on save.",
+        "description": "Pick an area to configure. Changes apply on save.",
+        "menu_options": {
+          "energy": "Energy & solar",
+          "air_quality": "Air quality & comfort",
+          "presence": "People & presence",
+          "advanced": "Nudges & timing"
+        }
+      },
+      "energy": {
+        "title": "Energy & solar",
         "data": {
           "pv_production_power": "PV production power",
           "household_consumption_power": "Household consumption power",
-          "grid_import_power": "Grid import power (optional)",
-          "grid_export_power": "Grid export power (optional)",
-          "battery_soc": "Battery state of charge (optional)",
-          "persons": "People for presence (optional)",
-          "dehumidifier_sensors": "Humidity sensors in rooms with a dehumidifier (optional)",
-          "dehumidifier_power_sensors": "Dehumidifier plug-power sensors — paired by area (optional)",
+          "grid_import_power": "Grid import power",
+          "grid_export_power": "Grid export power",
+          "battery_soc": "Battery state of charge",
+          "surplus_threshold_w": "Solar-surplus threshold"
+        },
+        "data_description": {
+          "grid_import_power": "Optional. Lets gHAndalf tell real export from battery charging.",
+          "grid_export_power": "Optional. Power flowing out to the grid.",
+          "battery_soc": "Optional. Used so advice respects a full/empty battery.",
+          "surplus_threshold_w": "Only suggest using solar once this much (W) is going to the grid. Default 1000."
+        }
+      },
+      "air_quality": {
+        "title": "Air quality & comfort",
+        "description": "Map a humidity sensor for each room that has a dehumidifier. Add the dehumidifier's plug-power sensor too (same HA area) and gHAndalf can tell when it's already running.",
+        "data": {
+          "dehumidifier_sensors": "Dehumidifier-room humidity sensors",
+          "dehumidifier_power_sensors": "Dehumidifier plug-power sensors",
+          "humidity_threshold_pct": "Run-it humidity threshold",
+          "humidity_off_threshold_pct": "Turn-it-off humidity threshold",
+          "dehumidifier_running_watts": "Plug watts = running"
+        },
+        "data_description": {
+          "dehumidifier_sensors": "One per room that has a dehumidifier. The room name comes from each sensor's HA area.",
+          "dehumidifier_power_sensors": "Optional. Paired to a room by shared HA area; lets gHAndalf skip the nudge when it's already on.",
+          "humidity_threshold_pct": "At/above this %, suggest running the dehumidifier. Default 60.",
+          "humidity_off_threshold_pct": "At/below this %, suggest turning it off (if its plug shows it running). Default 45. The gap to the run-it value avoids on/off flapping.",
+          "dehumidifier_running_watts": "Plug draw above which the dehumidifier counts as running. Default 10."
+        }
+      },
+      "presence": {
+        "title": "People & presence",
+        "data": {
+          "persons": "People to track"
+        },
+        "data_description": {
+          "persons": "Optional. If set, gHAndalf only nudges when at least one of these people is home. Leave empty to always nudge."
+        }
+      },
+      "advanced": {
+        "title": "Nudges & timing",
+        "description": "How often gHAndalf looks, and how it avoids nagging.",
+        "data": {
           "scan_interval": "Scan interval",
-          "surplus_threshold_w": "Solar-surplus threshold",
-          "humidity_threshold_pct": "Humidity threshold for dehumidifier advice",
-          "humidity_off_threshold_pct": "Humidity at/below which to suggest turning it off",
-          "dehumidifier_running_watts": "Plug watts above which the dehumidifier counts as running",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
-          "debounce_seconds": "Debounce (condition must persist)",
-          "cooldown_minutes": "Cooldown between repeats",
+          "debounce_seconds": "Debounce",
+          "cooldown_minutes": "Cooldown",
           "max_nudges_per_day": "Max nudges per day"
+        },
+        "data_description": {
+          "scan_interval": "How often (seconds) to re-read your sensors. Default 30.",
+          "quiet_hours_start": "No proactive nudges from this time…",
+          "quiet_hours_end": "…until this time. Default 22:00–07:00.",
+          "debounce_seconds": "A condition must persist this long before nudging, to ignore brief spikes. Default 300.",
+          "cooldown_minutes": "Minimum gap before repeating the same advice. Default 60.",
+          "max_nudges_per_day": "Cap on total nudges per day across everything. Default 8."
         }
       }
     }
