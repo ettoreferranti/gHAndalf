@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Test / quality tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mutmut-cache
+mutants/
+
+# Local secrets / per-install config (never commit personal mappings)
+secrets.yaml
+*.local.yaml
+*.local.json
+.env
+reference-deployment.md
+docs/reference-deployment.md
+
+# Claude Code local settings (paths/permissions, not for public repo)
+.claude/settings.local.json
+
+# OS
+.DS_Store
