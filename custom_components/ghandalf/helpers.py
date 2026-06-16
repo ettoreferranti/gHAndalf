@@ -7,6 +7,7 @@ string value) so they are trivially unit- and mutation-testable.
 from __future__ import annotations
 
 from datetime import time
+from math import exp
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -71,6 +72,21 @@ def net_grid_w(import_w: float | None, export_w: float | None) -> float | None:
     if import_w is None and export_w is None:
         return None
     return (import_w or 0.0) - (export_w or 0.0)
+
+
+def absolute_humidity(temp_c: float | None, rh_pct: float | None) -> float | None:
+    """Absolute humidity in g/m³ from temperature (°C) and relative humidity (%).
+
+    Uses the Magnus approximation for saturation vapour pressure. Returns ``None``
+    if either input is missing, so callers can fall back gracefully. Unlike %RH,
+    absolute humidity is directly comparable across two air masses at different
+    temperatures — which is what lets us tell whether outdoor air is actually
+    drier than indoor air before advising someone to open a window.
+    """
+    if temp_c is None or rh_pct is None:
+        return None
+    saturation = 6.112 * exp(17.67 * temp_c / (temp_c + 243.5))
+    return saturation * rh_pct * 2.1674 / (273.15 + temp_c)
 
 
 def parse_time(value: str | time | None, default: time | None = None) -> time | None:

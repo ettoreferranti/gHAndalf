@@ -16,12 +16,17 @@ from .const import (
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
+    CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
     DEFAULT_CO2_THRESHOLD_PPM,
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_SURPLUS_THRESHOLD_W,
+    DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C,
+    DEFAULT_VENTILATE_MIN_OUTDOOR_TEMP_C,
 )
+from .helpers import absolute_humidity
 from .models import AdviceCandidate, Category, Urgency
 
 # Type aliases only — mutating them to None is an equivalent mutant (annotations
@@ -147,12 +152,40 @@ def rule_dehumidifier_off(snapshot: Snapshot, cfg: Config) -> list[AdviceCandida
     return out
 
 
+def _venting_blocked(room: Mapping[str, Any], snapshot: Snapshot, cfg: Config) -> bool:
+    """Whether opening a window isn't worth it given the outdoor air right now.
+
+    Two independent reasons, each applied only when its data is available (so the
+    gate stays default-open and we never suppress on missing readings):
+
+    * outdoor temperature is outside the configured comfort band (too cold to
+      bother / too hot to freshen), or
+    * outdoor air is more humid than the room, so airing it out would only import
+      moisture. Compared via *absolute* humidity, which (unlike %RH) is
+      comparable across the indoor/outdoor temperature difference.
+    """
+    outdoor_temp = snapshot.get("outdoor_temp")
+    if outdoor_temp is not None:
+        min_t = cfg.get(
+            CONF_VENTILATE_MIN_OUTDOOR_TEMP_C, DEFAULT_VENTILATE_MIN_OUTDOOR_TEMP_C
+        )
+        max_t = cfg.get(
+            CONF_VENTILATE_MAX_OUTDOOR_TEMP_C, DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C
+        )
+        if outdoor_temp < min_t or outdoor_temp > max_t:
+            return True
+    indoor_ah = absolute_humidity(room.get("indoor_temp"), room.get("indoor_humidity"))
+    outdoor_ah = absolute_humidity(outdoor_temp, snapshot.get("outdoor_humidity"))
+    return indoor_ah is not None and outdoor_ah is not None and outdoor_ah > indoor_ah
+
+
 def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
     """Suggest airing a room out when its CO2 is high and no window is open.
 
     Window state is paired to the room by HA area (in the coordinator), so we
-    don't nag when the room is already being ventilated. Outdoor temperature, if
-    mapped, is added to the message for context.
+    don't nag when the room is already being ventilated. The nudge is also held
+    back when the outdoor air wouldn't actually help — see ``_venting_blocked``.
+    Outdoor temperature, if mapped, is added to the message for context.
     """
     rooms = snapshot.get("co2_rooms") or []
     threshold = cfg.get(CONF_CO2_THRESHOLD_PPM, DEFAULT_CO2_THRESHOLD_PPM)
@@ -164,6 +197,8 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
             continue
         if room.get("window_open"):
             continue  # already being aired out
+        if _venting_blocked(room, snapshot, cfg):
+            continue  # outdoor air too cold/hot, or more humid than the room
         message = (
             f"CO2 in {room['name']} is {round(ppm)} ppm — "
             "open a window for a few minutes to freshen the air."
@@ -181,6 +216,7 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
                     "ppm": ppm,
                     "threshold": threshold,
                     "outdoor_temp": outdoor,
+                    "outdoor_humidity": snapshot.get("outdoor_humidity"),
                 },
             )
         )
