@@ -16,6 +16,8 @@ import voluptuous as vol
 
 from .const import (
     CONF_BATTERY_SOC,
+    CONF_CO2_SENSORS,
+    CONF_CO2_THRESHOLD_PPM,
     CONF_CONSUMPTION_POWER,
     CONF_COOLDOWN_MINUTES,
     CONF_DEBOUNCE_SECONDS,
@@ -27,12 +29,15 @@ from .const import (
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
     CONF_SCAN_INTERVAL,
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_WINDOW_SENSORS,
+    DEFAULT_CO2_THRESHOLD_PPM,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
@@ -80,6 +85,16 @@ def _sensor(device_class: str, multiple: bool = False) -> selector.Selector:
 def _persons() -> selector.Selector:
     return selector.EntitySelector(
         selector.EntitySelectorConfig(domain="person", multiple=True)
+    )
+
+
+def _windows() -> selector.Selector:
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(
+            domain="binary_sensor",
+            device_class=["window", "door", "opening", "garage_door"],
+            multiple=True,
+        )
     )
 
 
@@ -131,6 +146,14 @@ AIR_QUALITY = Section(
             CONF_DEHUMIDIFIER_RUNNING_WATTS,
             _number(0, 5000, 5, "W"),
             default=DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
+        ),
+        Field(CONF_CO2_SENSORS, _sensor("carbon_dioxide", multiple=True)),
+        Field(CONF_WINDOW_SENSORS, _windows()),
+        Field(CONF_OUTDOOR_TEMP_SENSOR, _sensor("temperature")),
+        Field(
+            CONF_CO2_THRESHOLD_PPM,
+            _number(0, 5000, 50, "ppm"),
+            default=DEFAULT_CO2_THRESHOLD_PPM,
         ),
     ),
 )

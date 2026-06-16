@@ -9,6 +9,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ghandalf.const import (
     CONF_BATTERY_SOC,
+    CONF_CO2_SENSORS,
     CONF_CONSUMPTION_POWER,
     CONF_DEBOUNCE_SECONDS,
     CONF_DEHUMIDIFIER_POWER_SENSORS,
@@ -16,10 +17,12 @@ from custom_components.ghandalf.const import (
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
+    CONF_WINDOW_SENSORS,
     DOMAIN,
 )
 
@@ -259,3 +262,51 @@ async def test_dehumidifier_off_advice_when_dry_and_running(
     off = [a for a in advice if a["key"].startswith("dehumidifier_off:")]
     assert len(off) == 1
     assert "switch the dehumidifier off" in off[0]["message"]
+
+
+async def test_co2_advice_with_outdoor_and_window_suppression(
+    hass: HomeAssistant,
+) -> None:
+    """High CO2 with a closed window advises (with outdoor temp); open suppresses."""
+    area = ar.async_get(hass).async_get_or_create("Office")
+    reg = er.async_get(hass)
+    co2 = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "co2", suggested_object_id="office_co2"
+    )
+    win = reg.async_get_or_create(
+        "binary_sensor", "ghandalf_test", "win", suggested_object_id="office_window"
+    )
+    reg.async_update_entity(co2.entity_id, area_id=area.id)
+    reg.async_update_entity(win.entity_id, area_id=area.id)
+    hass.states.async_set(co2.entity_id, "1300", {"device_class": "carbon_dioxide"})
+    hass.states.async_set(win.entity_id, "off", {"device_class": "window"})  # closed
+    hass.states.async_set("sensor.outdoor", "18", {"device_class": "temperature"})
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_CO2_SENSORS: [co2.entity_id],
+            CONF_WINDOW_SENSORS: [win.entity_id],
+            CONF_OUTDOOR_TEMP_SENSOR: "sensor.outdoor",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    advice = entry.runtime_data.data["advice"]
+    co2_adv = [a for a in advice if a["key"].startswith("co2:")]
+    assert len(co2_adv) == 1
+    assert "Office" in co2_adv[0]["message"]
+    assert "18°" in co2_adv[0]["message"]
+
+    # Open the window -> same area -> advice suppressed.
+    hass.states.async_set(win.entity_id, "on", {"device_class": "window"})
+    await entry.runtime_data.async_refresh()
+    advice = entry.runtime_data.data["advice"]
+    assert not any(a["key"].startswith("co2:") for a in advice)
