@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
-from custom_components.ghandalf.const import CONF_SURPLUS_THRESHOLD_W
+from custom_components.ghandalf.const import (
+    CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_SURPLUS_THRESHOLD_W,
+)
 from custom_components.ghandalf.models import Category, Urgency
 from custom_components.ghandalf.rules import (
     _exporting_w,
     evaluate_rules,
+    rule_dehumidifier,
     rule_solar_surplus,
 )
 
 _CFG = {CONF_SURPLUS_THRESHOLD_W: 1000}
+
+
+def _rooms(*pairs):
+    return {
+        "dehumidifier_rooms": [
+            {"entity_id": f"sensor.{n.lower()}", "name": n, "humidity": h}
+            for n, h in pairs
+        ]
+    }
 
 
 def test_exporting_w_clamps_import_to_zero():
@@ -74,9 +87,53 @@ def test_surplus_uses_default_threshold_when_unset():
     assert advice is not None
 
 
-def test_evaluate_rules_collects_candidates():
-    advice = evaluate_rules({"net_grid_w": -3000.0, "surplus_w": 3000.0}, _CFG)
-    assert [a.key for a in advice] == ["solar_surplus"]
+def test_dehumidifier_fires_only_for_humid_rooms():
+    snap = _rooms(("Bathroom", 65.0), ("Basement", 58.0), ("Attic", None))
+    out = rule_dehumidifier(snap, {CONF_HUMIDITY_THRESHOLD_PCT: 60})
+    assert [c.data["room"] for c in out] == ["Bathroom"]
+    c = out[0]
+    assert c.key == "dehumidifier:sensor.bathroom"
+    assert c.category is Category.AIR_QUALITY
+    assert c.urgency is Urgency.ACT
+    assert c.message.startswith("Humidity in Bathroom is 65%")
+    assert c.message.endswith("Time to run the dehumidifier.")
+    assert "above 60%" in c.message
+    assert c.data["humidity"] == 65.0
+    assert c.data["threshold"] == 60
+
+
+def test_dehumidifier_skipped_room_does_not_block_later_room():
+    # A dry room listed first must not stop a humid room listed after it.
+    out = rule_dehumidifier(
+        _rooms(("Dry", 50.0), ("Wet", 70.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 60}
+    )
+    assert [c.data["room"] for c in out] == ["Wet"]
+
+
+def test_dehumidifier_fires_at_exact_threshold():
+    out = rule_dehumidifier(_rooms(("R", 60.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 60})
+    assert len(out) == 1
+
+
+def test_dehumidifier_uses_default_threshold():
+    assert len(rule_dehumidifier(_rooms(("R", 61.0)), {})) == 1  # default 60
+    assert rule_dehumidifier(_rooms(("R", 59.0)), {}) == []
+
+
+def test_dehumidifier_handles_no_rooms():
+    assert rule_dehumidifier({}, {}) == []
+    assert rule_dehumidifier({"dehumidifier_rooms": []}, {}) == []
+
+
+def test_dehumidifier_multiple_humid_rooms():
+    out = rule_dehumidifier(_rooms(("A", 70.0), ("B", 80.0)), {})
+    assert {c.data["room"] for c in out} == {"A", "B"}
+
+
+def test_evaluate_rules_collects_single_and_multi():
+    snap = {"net_grid_w": -3000.0, "surplus_w": 3000.0, **_rooms(("Bath", 75.0))}
+    keys = {a.key for a in evaluate_rules(snap, _CFG)}
+    assert keys == {"solar_surplus", "dehumidifier:sensor.bath"}
 
     none = evaluate_rules({"net_grid_w": 0.0, "surplus_w": 0.0}, _CFG)
     assert none == []

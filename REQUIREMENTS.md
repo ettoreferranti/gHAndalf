@@ -164,11 +164,16 @@ CO₂ bands (default, configurable): `<800` fresh · `800–1000` ok · `1000–
 | **Stop venting** | window open **and** CO₂ back to fresh (or outdoor worse) | "{room} air is fresh again — you can close the window." |
 | **Heating with window open** | a room's window open > N min **and** heating active for that zone | "Window open in {room} while heating — close it or pause the zone." |
 | **Humidity comfort** | indoor humidity outside 40–60 % sustained | dry: "Air's dry ({rh}%) — …"; damp: "{room} is humid ({rh}%) — ventilate / check for condensation." |
+| **Run the dehumidifier** *(shipped)* | a room **with a dehumidifier** has humidity > threshold (default 60 %) | "Humidity in {room} is {rh}% (above {t}%). Time to run the dehumidifier." |
 | **PM2.5 spike** | PM2.5 > threshold | "Particulates up in {room} ({µg}) — keep windows shut; let the purifier handle it." |
 | **Don't vent now** (suppression, not a nudge) | outdoor worse than indoor (hot/humid/high PM) | suppresses the ventilate rule rather than nagging |
 
 Outdoor cross-check uses outdoor temp / humidity / **dew point** (to avoid condensation advice) and
-outdoor PM where available. Presence-gating uses per-room motion + `person` home/away.
+outdoor PM where available — preferring a mapped **local outdoor sensor** and falling back to a
+weather integration. Presence-gating uses per-room motion + `person` home/away. Room labels come from
+each sensor's **HA area** (so a moved sensor relabels itself once its area is updated), falling back
+to its friendly name. The dehumidifier rule ships first (humidity-only); running-state detection via
+a plug-power sensor and the CO₂/ventilation rules follow.
 
 ---
 

@@ -5,12 +5,16 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from homeassistant.helpers import area_registry as ar, entity_registry as er
+
 from custom_components.ghandalf.const import (
     CONF_BATTERY_SOC,
     CONF_CONSUMPTION_POWER,
     CONF_DEBOUNCE_SECONDS,
+    CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
+    CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
@@ -103,3 +107,77 @@ async def test_presence_gates_nudges(hass: HomeAssistant) -> None:
     data = entry.runtime_data.data
     assert data["presence_home"] is True
     assert data["pending_nudges"] == ["solar_surplus"]
+
+
+async def test_dehumidifier_advice_with_room_name(hass: HomeAssistant) -> None:
+    """A mapped humid room produces dehumidifier advice; name falls back to friendly."""
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)  # no surplus
+    hass.states.async_set(
+        "sensor.bath_hum",
+        "72",
+        {
+            "device_class": "humidity",
+            "unit_of_measurement": "%",
+            "friendly_name": "Bathroom Humidity",
+        },
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_DEHUMIDIFIER_SENSORS: ["sensor.bath_hum"],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    advice = entry.runtime_data.data["advice"]
+    match = [a for a in advice if a["key"] == "dehumidifier:sensor.bath_hum"]
+    assert len(match) == 1
+    assert "Bathroom Humidity" in match[0]["message"]
+    assert "72%" in match[0]["message"]
+
+
+async def test_dehumidifier_room_name_follows_ha_area(hass: HomeAssistant) -> None:
+    """A sensor's HA area names the room, even if its friendly name is stale.
+
+    Mirrors the real case: an Aqara moved to the basement still reads
+    "Office Elisa ..." as its friendly name, but its area is set to Basement.
+    """
+    area = ar.async_get(hass).async_get_or_create("Basement")
+    reg = er.async_get(hass).async_get_or_create(
+        "sensor", "ghandalf_test", "moved-aqara", suggested_object_id="moved_aqara"
+    )
+    er.async_get(hass).async_update_entity(reg.entity_id, area_id=area.id)
+    hass.states.async_set(
+        reg.entity_id,
+        "68",
+        {"device_class": "humidity", "friendly_name": "Office Elisa Humidity"},
+    )
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_DEHUMIDIFIER_SENSORS: [reg.entity_id],
+            CONF_HUMIDITY_THRESHOLD_PCT: 65,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    advice = entry.runtime_data.data["advice"]
+    match = [a for a in advice if a["key"].startswith("dehumidifier:")]
+    assert len(match) == 1
+    assert "Basement" in match[0]["message"]  # area wins
+    assert "Office Elisa" not in match[0]["message"]  # not the stale friendly name

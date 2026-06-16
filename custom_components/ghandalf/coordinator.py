@@ -13,6 +13,15 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import (
+    area_registry as ar,
+)
+from homeassistant.helpers import (
+    device_registry as dr,
+)
+from homeassistant.helpers import (
+    entity_registry as er,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -21,8 +30,10 @@ from .const import (
     CONF_CONSUMPTION_POWER,
     CONF_COOLDOWN_MINUTES,
     CONF_DEBOUNCE_SECONDS,
+    CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
+    CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_MAX_NUDGES_PER_DAY,
     CONF_PERSONS,
     CONF_PV_POWER,
@@ -55,7 +66,7 @@ _NUMERIC_ROLES: dict[str, str] = {
 }
 
 # Config keys the rule engine reads, surfaced as a plain mapping.
-_RULE_CONFIG_KEYS = (CONF_SURPLUS_THRESHOLD_W,)
+_RULE_CONFIG_KEYS = (CONF_SURPLUS_THRESHOLD_W, CONF_HUMIDITY_THRESHOLD_PCT)
 
 
 class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -117,6 +128,41 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for person in persons
         )
 
+    def _room_name(self, entity_id: str) -> str:
+        """Human-readable room for an entity: its HA area, else friendly name.
+
+        Using the area means the label follows the entity if it's physically
+        moved and re-assigned in HA (e.g. a humidity sensor moved to the basement).
+        """
+        ent_reg = er.async_get(self.hass)
+        entry = ent_reg.async_get(entity_id)
+        area_id = entry.area_id if entry else None
+        if entry and area_id is None and entry.device_id:
+            device = dr.async_get(self.hass).async_get(entry.device_id)
+            area_id = device.area_id if device else None
+        if area_id:
+            area = ar.async_get(self.hass).async_get_area(area_id)
+            if area:
+                return area.name
+        state = self.hass.states.get(entity_id)
+        if state:
+            return state.attributes.get("friendly_name", entity_id)
+        return entity_id
+
+    def _read_dehumidifier_rooms(self) -> list[dict[str, Any]]:
+        """Read each mapped dehumidifier-room humidity sensor."""
+        rooms: list[dict[str, Any]] = []
+        for entity_id in get_conf(self.entry, CONF_DEHUMIDIFIER_SENSORS) or []:
+            state = self.hass.states.get(entity_id)
+            rooms.append(
+                {
+                    "entity_id": entity_id,
+                    "name": self._room_name(entity_id),
+                    "humidity": parse_float(state.state) if state else None,
+                }
+            )
+        return rooms
+
     def _rule_config(self) -> dict[str, Any]:
         # Omit unset keys so rules' own ``cfg.get(key, DEFAULT)`` fallbacks apply
         # (injecting an explicit None would shadow those defaults).
@@ -149,6 +195,7 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if get_conf(self.entry, conf_key) and values[key] is None
         ]
         values["unavailable_roles"] = unavailable
+        values["dehumidifier_rooms"] = self._read_dehumidifier_rooms()
 
         # Rule engine -> candidates; nudge gate -> what would fire now.
         candidates = evaluate_rules(values, self._rule_config())
