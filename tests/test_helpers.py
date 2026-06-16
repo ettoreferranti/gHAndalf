@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import time
 from types import SimpleNamespace
 
 import pytest
 
 from custom_components.ghandalf.helpers import (
     get_conf,
+    in_quiet_hours,
     net_grid_w,
     parse_float,
+    parse_time,
     solar_surplus_w,
 )
 
@@ -33,6 +36,51 @@ def test_get_conf_falls_back_to_default():
     entry = _entry(data={}, options={})
     assert get_conf(entry, "missing", "the_default") == "the_default"
     assert get_conf(entry, "missing") is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("22:00:00", time(22, 0, 0)),
+        ("22:00:45", time(22, 0, 45)),  # seconds must be parsed, not dropped
+        ("07:30", time(7, 30, 0)),
+        ("9", time(9, 0, 0)),
+        (time(6, 15), time(6, 15)),
+        (None, None),
+        ("", None),
+        ("not:a:time", None),
+        ("25:00", None),  # hour out of range -> default (None)
+    ],
+)
+def test_parse_time(raw, expected):
+    assert parse_time(raw) == expected
+
+
+def test_parse_time_uses_default():
+    assert parse_time(None, time(1, 2)) == time(1, 2)
+    assert parse_time("garbage", time(1, 2)) == time(1, 2)
+
+
+@pytest.mark.parametrize(
+    ("now", "start", "end", "expected"),
+    [
+        # Wrapping window 22:00-07:00
+        (time(23, 0), time(22, 0), time(7, 0), True),
+        (time(2, 0), time(22, 0), time(7, 0), True),
+        (time(22, 0), time(22, 0), time(7, 0), True),  # inclusive start
+        (time(7, 0), time(22, 0), time(7, 0), False),  # exclusive end
+        (time(12, 0), time(22, 0), time(7, 0), False),
+        # Same-day window 09:00-17:00
+        (time(12, 0), time(9, 0), time(17, 0), True),
+        (time(9, 0), time(9, 0), time(17, 0), True),  # inclusive start
+        (time(8, 59), time(9, 0), time(17, 0), False),
+        (time(17, 0), time(9, 0), time(17, 0), False),
+        # Disabled (zero-length)
+        (time(3, 0), time(0, 0), time(0, 0), False),
+    ],
+)
+def test_in_quiet_hours(now, start, end, expected):
+    assert in_quiet_hours(now, start, end) is expected
 
 
 @pytest.mark.parametrize(

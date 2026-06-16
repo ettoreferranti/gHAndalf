@@ -45,6 +45,16 @@ def _status_attrs(data: dict[str, Any]) -> dict[str, Any]:
     return {"unavailable_roles": data.get("unavailable_roles", [])}
 
 
+def _advice_attrs(data: dict[str, Any]) -> dict[str, Any]:
+    advice = data.get("advice", [])
+    return {
+        "advice": advice,
+        "pending_nudges": data.get("pending_nudges", []),
+        "presence_home": data.get("presence_home"),
+        "summary": advice[0]["message"] if advice else "No advice right now.",
+    }
+
+
 SENSORS: tuple[GHandalfSensorDescription, ...] = (
     GHandalfSensorDescription(
         key="solar_surplus",
@@ -61,6 +71,13 @@ SENSORS: tuple[GHandalfSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         value_fn=lambda data: data.get("net_grid_w"),
+    ),
+    GHandalfSensorDescription(
+        key="active_advice",
+        translation_key="active_advice",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: len(data.get("advice", [])),
+        attrs_fn=_advice_attrs,
     ),
     GHandalfSensorDescription(
         key="status",
