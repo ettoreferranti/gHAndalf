@@ -23,9 +23,14 @@ CONF_BATTERY_SOC: Final = "battery_soc"
 # Presence (optional): persons used to decide "is anyone home" for nudge-gating.
 CONF_PERSONS: Final = "persons"
 
+# Air quality & comfort (pillar 2). Humidity sensors for rooms that have a
+# dehumidifier — high humidity in one of these prompts "run the dehumidifier".
+CONF_DEHUMIDIFIER_SENSORS: Final = "dehumidifier_sensors"
+
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
+CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
 
 # Nudge-gate tunables (anti-alert-fatigue).
 CONF_QUIET_START: Final = "quiet_hours_start"
@@ -40,6 +45,7 @@ MIN_SCAN_INTERVAL: Final = 10
 MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
+DEFAULT_HUMIDITY_THRESHOLD_PCT: Final = 60  # %RH above which to suggest dehumidifying
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"

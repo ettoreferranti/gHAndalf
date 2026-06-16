@@ -10,7 +10,8 @@
           "grid_import_power": "Grid import power (optional)",
           "grid_export_power": "Grid export power (optional)",
           "battery_soc": "Battery state of charge (optional)",
-          "persons": "People for presence (optional)"
+          "persons": "People for presence (optional)",
+          "dehumidifier_sensors": "Humidity sensors in rooms with a dehumidifier (optional)"
         }
       }
     },
@@ -30,8 +31,10 @@
           "grid_export_power": "Grid export power (optional)",
           "battery_soc": "Battery state of charge (optional)",
           "persons": "People for presence (optional)",
+          "dehumidifier_sensors": "Humidity sensors in rooms with a dehumidifier (optional)",
           "scan_interval": "Scan interval",
           "surplus_threshold_w": "Solar-surplus threshold",
+          "humidity_threshold_pct": "Humidity threshold for dehumidifier advice",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
           "debounce_seconds": "Debounce (condition must persist)",

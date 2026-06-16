@@ -10,7 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .const import CONF_SURPLUS_THRESHOLD_W, DEFAULT_SURPLUS_THRESHOLD_W
+from .const import (
+    CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_SURPLUS_THRESHOLD_W,
+    DEFAULT_HUMIDITY_THRESHOLD_PCT,
+    DEFAULT_SURPLUS_THRESHOLD_W,
+)
 from .models import AdviceCandidate, Category, Urgency
 
 # Type aliases only — mutating them to None is an equivalent mutant (annotations
@@ -55,8 +60,42 @@ def rule_solar_surplus(snapshot: Snapshot, cfg: Config) -> AdviceCandidate | Non
     )
 
 
-# Registry of active rules. Add new rules here.
+def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
+    """Suggest running the dehumidifier in any mapped room above the threshold.
+
+    Unlike the single-result rules, this fans out over the mapped dehumidifier
+    rooms (snapshot ``dehumidifier_rooms``), one candidate per humid room.
+    """
+    rooms = snapshot.get("dehumidifier_rooms") or []
+    threshold = cfg.get(CONF_HUMIDITY_THRESHOLD_PCT, DEFAULT_HUMIDITY_THRESHOLD_PCT)
+    out: list[AdviceCandidate] = []
+    for room in rooms:
+        humidity = room.get("humidity")
+        if humidity is None or humidity < threshold:
+            continue
+        out.append(
+            AdviceCandidate(
+                key=f"dehumidifier:{room['entity_id']}",
+                category=Category.AIR_QUALITY,
+                urgency=Urgency.ACT,
+                message=(
+                    f"Humidity in {room['name']} is {round(humidity)}% "
+                    f"(above {threshold}%). Time to run the dehumidifier."
+                ),
+                data={
+                    "room": room["name"],
+                    "humidity": humidity,
+                    "threshold": threshold,
+                },
+            )
+        )
+    return out
+
+
+# Single-result rules (return one candidate or None).
 RULES = (rule_solar_surplus,)
+# Multi-result rules (return a list of candidates).
+MULTI_RULES = (rule_dehumidifier,)
 
 
 def evaluate_rules(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
@@ -66,4 +105,6 @@ def evaluate_rules(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
         candidate = rule(snapshot, cfg)
         if candidate is not None:
             candidates.append(candidate)
+    for multi_rule in MULTI_RULES:
+        candidates.extend(multi_rule(snapshot, cfg))
     return candidates
