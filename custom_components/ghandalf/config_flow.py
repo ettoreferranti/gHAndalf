@@ -28,6 +28,7 @@ from .const import (
     CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
+    CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_MAX_NUDGES_PER_DAY,
     CONF_PERSONS,
@@ -39,6 +40,7 @@ from .const import (
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
+    DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_MAX_NUDGES_PER_DAY,
     DEFAULT_QUIET_END,
@@ -109,6 +111,10 @@ def _tunables_schema() -> vol.Schema:
             ): _number(0, 20000, 100, "W"),
             vol.Optional(
                 CONF_HUMIDITY_THRESHOLD_PCT, default=DEFAULT_HUMIDITY_THRESHOLD_PCT
+            ): _number(0, 100, 1, "%"),
+            vol.Optional(
+                CONF_HUMIDITY_OFF_THRESHOLD_PCT,
+                default=DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
             ): _number(0, 100, 1, "%"),
             vol.Optional(
                 CONF_DEHUMIDIFIER_RUNNING_WATTS,

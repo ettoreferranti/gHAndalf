@@ -35,6 +35,7 @@ CONF_DEHUMIDIFIER_POWER_SENSORS: Final = "dehumidifier_power_sensors"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
 CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
+CONF_HUMIDITY_OFF_THRESHOLD_PCT: Final = "humidity_off_threshold_pct"
 CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"
 
 # Nudge-gate tunables (anti-alert-fatigue).
@@ -51,6 +52,9 @@ MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
 DEFAULT_HUMIDITY_THRESHOLD_PCT: Final = 60  # %RH above which to suggest dehumidifying
+DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT: Final = (
+    45  # %RH at/below which to suggest turning off
+)
 DEFAULT_DEHUMIDIFIER_RUNNING_WATTS: Final = 10  # plug draw above which it's "running"
 
 DEFAULT_QUIET_START: Final = "22:00:00"
