@@ -30,6 +30,8 @@ from .const import (
     CONF_CONSUMPTION_POWER,
     CONF_COOLDOWN_MINUTES,
     CONF_DEBOUNCE_SECONDS,
+    CONF_DEHUMIDIFIER_POWER_SENSORS,
+    CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
@@ -66,7 +68,11 @@ _NUMERIC_ROLES: dict[str, str] = {
 }
 
 # Config keys the rule engine reads, surfaced as a plain mapping.
-_RULE_CONFIG_KEYS = (CONF_SURPLUS_THRESHOLD_W, CONF_HUMIDITY_THRESHOLD_PCT)
+_RULE_CONFIG_KEYS = (
+    CONF_SURPLUS_THRESHOLD_W,
+    CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_DEHUMIDIFIER_RUNNING_WATTS,
+)
 
 
 class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -128,18 +134,25 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for person in persons
         )
 
+    def _area_id(self, entity_id: str) -> str | None:
+        """The HA area id for an entity (its own, else its device's)."""
+        entry = er.async_get(self.hass).async_get(entity_id)
+        if entry is None:
+            return None
+        if entry.area_id is not None:
+            return entry.area_id
+        if entry.device_id:
+            device = dr.async_get(self.hass).async_get(entry.device_id)
+            return device.area_id if device else None
+        return None
+
     def _room_name(self, entity_id: str) -> str:
         """Human-readable room for an entity: its HA area, else friendly name.
 
         Using the area means the label follows the entity if it's physically
         moved and re-assigned in HA (e.g. a humidity sensor moved to the basement).
         """
-        ent_reg = er.async_get(self.hass)
-        entry = ent_reg.async_get(entity_id)
-        area_id = entry.area_id if entry else None
-        if entry and area_id is None and entry.device_id:
-            device = dr.async_get(self.hass).async_get(entry.device_id)
-            area_id = device.area_id if device else None
+        area_id = self._area_id(entity_id)
         if area_id:
             area = ar.async_get(self.hass).async_get_area(area_id)
             if area:
@@ -149,16 +162,37 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return state.attributes.get("friendly_name", entity_id)
         return entity_id
 
+    def _power_by_area(self) -> dict[str, float]:
+        """Max plug-power reading per area, across the mapped dehumidifier plugs."""
+        powers: dict[str, float] = {}
+        for entity_id in get_conf(self.entry, CONF_DEHUMIDIFIER_POWER_SENSORS) or []:
+            area_id = self._area_id(entity_id)
+            if area_id is None:
+                continue
+            state = self.hass.states.get(entity_id)
+            power = parse_float(state.state) if state else None
+            if power is None:
+                continue
+            powers[area_id] = max(powers.get(area_id, power), power)
+        return powers
+
     def _read_dehumidifier_rooms(self) -> list[dict[str, Any]]:
-        """Read each mapped dehumidifier-room humidity sensor."""
+        """Read each mapped dehumidifier-room humidity sensor.
+
+        Pairs a plug-power reading by shared HA area, so the rule can tell when
+        the dehumidifier is already running.
+        """
+        powers = self._power_by_area()
         rooms: list[dict[str, Any]] = []
         for entity_id in get_conf(self.entry, CONF_DEHUMIDIFIER_SENSORS) or []:
             state = self.hass.states.get(entity_id)
+            area_id = self._area_id(entity_id)
             rooms.append(
                 {
                     "entity_id": entity_id,
                     "name": self._room_name(entity_id),
                     "humidity": parse_float(state.state) if state else None,
+                    "power_w": powers.get(area_id) if area_id is not None else None,
                 }
             )
         return rooms

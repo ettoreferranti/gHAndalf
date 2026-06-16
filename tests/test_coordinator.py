@@ -11,6 +11,7 @@ from custom_components.ghandalf.const import (
     CONF_BATTERY_SOC,
     CONF_CONSUMPTION_POWER,
     CONF_DEBOUNCE_SECONDS,
+    CONF_DEHUMIDIFIER_POWER_SENSORS,
     CONF_DEHUMIDIFIER_SENSORS,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
@@ -181,3 +182,41 @@ async def test_dehumidifier_room_name_follows_ha_area(hass: HomeAssistant) -> No
     assert len(match) == 1
     assert "Basement" in match[0]["message"]  # area wins
     assert "Office Elisa" not in match[0]["message"]  # not the stale friendly name
+
+
+async def test_dehumidifier_suppressed_when_plug_running(hass: HomeAssistant) -> None:
+    """A powered plug in the humidity sensor's area suppresses that room's advice."""
+    area = ar.async_get(hass).async_get_or_create("Basement")
+    reg = er.async_get(hass)
+    hum = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "h", suggested_object_id="b_hum"
+    )
+    pwr = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "p", suggested_object_id="b_plug"
+    )
+    reg.async_update_entity(hum.entity_id, area_id=area.id)
+    reg.async_update_entity(pwr.entity_id, area_id=area.id)
+    hass.states.async_set(hum.entity_id, "70", {"device_class": "humidity"})
+    hass.states.async_set(pwr.entity_id, "250", {"device_class": "power"})
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_DEHUMIDIFIER_SENSORS: [hum.entity_id],
+            CONF_DEHUMIDIFIER_POWER_SENSORS: [pwr.entity_id],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    data = entry.runtime_data.data
+    # The plug power was paired to the room by shared area...
+    assert data["dehumidifier_rooms"][0]["power_w"] == 250.0
+    # ...and because it's running, no advice is produced.
+    assert not any(a["key"].startswith("dehumidifier:") for a in data["advice"])
