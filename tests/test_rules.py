@@ -140,9 +140,8 @@ def test_dehumidifier_running_boundary_counts_as_running():
 
 def test_dehumidifier_running_room_does_not_block_later_room():
     cfg = {CONF_HUMIDITY_THRESHOLD_PCT: 60, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
-    out = rule_dehumidifier(
-        _rooms(("Running", 70.0, 250.0), ("Idle", 70.0, 2.0)), cfg
-    )
+    snap = _rooms(("Running", 70.0, 250.0), ("Idle", 70.0, 2.0))
+    out = rule_dehumidifier(snap, cfg)
     assert [c.data["room"] for c in out] == ["Idle"]
 
 
