@@ -1,4 +1,4 @@
 # Extra developer tooling, kept separate from requirements_test.txt so it can
 # never constrain the test environment's pinned dependencies.
 -r requirements_test.txt
-mutmut==2.5.1
+mutmut==3.6.0
