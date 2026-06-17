@@ -7,6 +7,7 @@ from custom_components.ghandalf.const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_REQUIRE_OCCUPANCY,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
@@ -23,15 +24,22 @@ from custom_components.ghandalf.rules import (
 
 _OFF = {CONF_HUMIDITY_OFF_THRESHOLD_PCT: 45, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
 _CO2 = {CONF_CO2_THRESHOLD_PPM: 1000}
+# The occupancy gate is opt-in, so tests that exercise it enable it explicitly.
+_CO2_OCC = {CONF_CO2_THRESHOLD_PPM: 1000, CONF_REQUIRE_OCCUPANCY: True}
 
 
 def _co2_snap(
-    *rooms, outdoor=None, outdoor_humidity=None, indoor_temp=None, indoor_humidity=None
+    *rooms,
+    outdoor=None,
+    outdoor_humidity=None,
+    indoor_temp=None,
+    indoor_humidity=None,
+    occupied=True,
 ):
     """Each room is (name, ppm) or (name, ppm, window_open).
 
-    Indoor temp/humidity (for the moisture gate) apply to every room; the outdoor
-    values live at the snapshot level.
+    Indoor temp/humidity (for the moisture gate) and occupancy apply to every
+    room; the outdoor values live at the snapshot level.
     """
     out = []
     for r in rooms:
@@ -44,6 +52,7 @@ def _co2_snap(
                 "window_open": window_open,
                 "indoor_temp": indoor_temp,
                 "indoor_humidity": indoor_humidity,
+                "occupied": occupied,
             }
         )
     return {
@@ -206,6 +215,9 @@ def test_dehumidifier_message_drops_trailing_zero():
 def test_dehumidifier_fires_at_exact_threshold():
     out = rule_dehumidifier(_rooms(("R", 60.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 60})
     assert len(out) == 1
+    # At the threshold the reading isn't *above* it, so the wording must not claim so.
+    assert "at or above 60%" in out[0].message
+    assert "(above 60%)" not in out[0].message
 
 
 def test_dehumidifier_uses_default_threshold():
@@ -444,6 +456,53 @@ def test_co2_no_moisture_gate_when_outdoor_humidity_missing():
         ("Office", 1500.0), outdoor=10.0, indoor_temp=21.0, indoor_humidity=40.0
     )
     assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+# --- occupancy gate (opt-in) ------------------------------------------------
+def test_co2_occupancy_gate_off_by_default():
+    # Default config: an empty room still gets the nudge (gate is opt-in).
+    snap = _co2_snap(("Office", 1500.0), occupied=False)
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_suppressed_when_room_empty_and_gate_enabled():
+    snap = _co2_snap(("Office", 1500.0), occupied=False)
+    assert rule_co2_ventilate(snap, _CO2_OCC) == []
+
+
+def test_co2_fires_when_room_occupied_and_gate_enabled():
+    snap = _co2_snap(("Office", 1500.0), occupied=True)
+    assert len(rule_co2_ventilate(snap, _CO2_OCC)) == 1
+
+
+def test_co2_occupancy_defaults_to_occupied_when_unknown():
+    # Gate on but no "occupied" key (e.g. no sensor mapped) -> default occupied.
+    snap = {
+        "outdoor_temp": None,
+        "co2_rooms": [{"entity_id": "sensor.office", "name": "Office", "ppm": 1500.0}],
+    }
+    assert len(rule_co2_ventilate(snap, _CO2_OCC)) == 1
+
+
+def test_co2_empty_room_does_not_block_later_occupied_room():
+    snap = {
+        "outdoor_temp": None,
+        "co2_rooms": [
+            {
+                "entity_id": "sensor.empty",
+                "name": "Empty",
+                "ppm": 1500.0,
+                "occupied": False,
+            },
+            {
+                "entity_id": "sensor.busy",
+                "name": "Busy",
+                "ppm": 1500.0,
+                "occupied": True,
+            },
+        ],
+    }
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2_OCC)] == ["Busy"]
 
 
 def test_co2_gate_blocked_room_does_not_block_later_room():

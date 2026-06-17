@@ -42,12 +42,15 @@ from .const import (
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_OCCUPANCY_GRACE_MINUTES,
+    CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
+    CONF_REQUIRE_OCCUPANCY,
     CONF_SCAN_INTERVAL,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
@@ -57,12 +60,20 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_MAX_NUDGES_PER_DAY,
     DEFAULT_MAX_PER_CATEGORY_PER_DAY,
+    DEFAULT_OCCUPANCY_GRACE_MINUTES,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .helpers import get_conf, net_grid_w, parse_float, parse_time, solar_surplus_w
+from .helpers import (
+    get_conf,
+    net_grid_w,
+    occupied_within,
+    parse_float,
+    parse_time,
+    solar_surplus_w,
+)
 from .nudge_gate import NudgeGate
 from .rules import evaluate_rules
 
@@ -86,6 +97,7 @@ _RULE_CONFIG_KEYS = (
     CONF_CO2_THRESHOLD_PPM,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
+    CONF_REQUIRE_OCCUPANCY,
 )
 
 
@@ -248,15 +260,45 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     areas.add(area_id)
         return areas
 
+    def _occupancy_by_area(self) -> dict[str, bool]:
+        """Area id -> occupied, for areas with at least one mapped occupancy sensor.
+
+        Only areas that *have* a mapped sensor appear, so a CO2 room with no
+        occupancy sensor is left to default to occupied (the gate stays open).
+        Counts a room as occupied while it's within the grace window of its last
+        motion, not just on a live ``on``.
+        """
+        grace = float(
+            get_conf(
+                self.entry,
+                CONF_OCCUPANCY_GRACE_MINUTES,
+                DEFAULT_OCCUPANCY_GRACE_MINUTES,
+            )
+        )
+        now = dt_util.now()
+        occupancy: dict[str, bool] = {}
+        for entity_id in get_conf(self.entry, CONF_OCCUPANCY_SENSORS) or []:
+            area_id = self._area_id(entity_id)
+            if area_id is None:
+                continue
+            state = self.hass.states.get(entity_id)
+            occupied = state is not None and occupied_within(
+                state.state, state.last_changed, now, grace
+            )
+            occupancy[area_id] = occupancy.get(area_id, False) or occupied
+        return occupancy
+
     def _read_co2_rooms(self) -> list[dict[str, Any]]:
         """Read each mapped CO2 sensor, flagging whether its room is being aired.
 
         Indoor temperature/humidity are paired in by shared HA area so the rule
-        can compare indoor vs outdoor absolute humidity per room.
+        can compare indoor vs outdoor absolute humidity per room; occupancy is
+        paired the same way so we don't nudge to air out an empty room.
         """
         open_areas = self._open_window_areas()
         indoor_temps = self._first_value_by_area(CONF_INDOOR_TEMP_SENSORS)
         indoor_humidities = self._first_value_by_area(CONF_INDOOR_HUMIDITY_SENSORS)
+        occupancy = self._occupancy_by_area()
         rooms: list[dict[str, Any]] = []
         for entity_id in get_conf(self.entry, CONF_CO2_SENSORS) or []:
             state = self.hass.states.get(entity_id)
@@ -273,6 +315,11 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "indoor_humidity": indoor_humidities.get(area_id)
                     if area_id is not None
                     else None,
+                    # Default-open: an area with no mapped occupancy sensor (or a
+                    # CO2 sensor with no area) counts as occupied.
+                    "occupied": occupancy.get(area_id, True)
+                    if area_id is not None
+                    else True,
                 }
             )
         return rooms

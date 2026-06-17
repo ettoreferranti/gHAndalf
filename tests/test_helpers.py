@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import UTC, datetime, time, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -12,10 +12,13 @@ from custom_components.ghandalf.helpers import (
     get_conf,
     in_quiet_hours,
     net_grid_w,
+    occupied_within,
     parse_float,
     parse_time,
     solar_surplus_w,
 )
+
+_NOW = datetime(2026, 6, 17, 12, 0, tzinfo=UTC)
 
 
 def _entry(data: dict, options: dict) -> SimpleNamespace:
@@ -166,3 +169,23 @@ def test_absolute_humidity_scales_with_rh():
 )
 def test_absolute_humidity_missing_input(temp_c, rh_pct):
     assert absolute_humidity(temp_c, rh_pct) is None
+
+
+@pytest.mark.parametrize(
+    ("state", "minutes_ago", "expected"),
+    [
+        ("on", 999, True),  # on now -> occupied regardless of age
+        ("off", 5, True),  # off recently -> still within 15-min grace
+        ("off", 15, True),  # exactly at the grace boundary still counts
+        ("off", 20, False),  # off too long ago -> gone
+        ("unavailable", 1, False),  # can't tell -> not occupied
+        ("unknown", 1, False),
+    ],
+)
+def test_occupied_within(state, minutes_ago, expected):
+    last_changed = _NOW - timedelta(minutes=minutes_ago)
+    assert occupied_within(state, last_changed, _NOW, 15) is expected
+
+
+def test_occupied_within_off_with_no_timestamp_is_not_occupied():
+    assert occupied_within("off", None, _NOW, 15) is False
