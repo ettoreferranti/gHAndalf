@@ -38,6 +38,9 @@ from .const import (
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
+    CONF_PRICE_AVERAGE_SENSOR,
+    CONF_PRICE_MARGIN_PCT,
+    CONF_PRICE_SENSOR,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
@@ -56,6 +59,7 @@ from .const import (
     DEFAULT_MAX_NUDGES_PER_DAY,
     DEFAULT_NOTIFY_PERSISTENT,
     DEFAULT_OCCUPANCY_GRACE_MINUTES,
+    DEFAULT_PRICE_MARGIN_PCT,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
     DEFAULT_REQUIRE_OCCUPANCY,
@@ -101,6 +105,12 @@ def _persons() -> selector.Selector:
     return selector.EntitySelector(
         selector.EntitySelectorConfig(domain="person", multiple=True)
     )
+
+
+def _price_sensor() -> selector.Selector:
+    # No device_class filter: electricity-price sensors (e.g. EKZ, CHF/kWh) don't
+    # use a standard sensor device_class, so we let the user pick any sensor.
+    return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
 
 def _notify_targets() -> selector.Selector:
@@ -154,6 +164,13 @@ ENERGY = Section(
             CONF_SURPLUS_THRESHOLD_W,
             _number(0, 20000, 100, "W"),
             default=DEFAULT_SURPLUS_THRESHOLD_W,
+        ),
+        Field(CONF_PRICE_SENSOR, _price_sensor()),
+        Field(CONF_PRICE_AVERAGE_SENSOR, _price_sensor()),
+        Field(
+            CONF_PRICE_MARGIN_PCT,
+            _number(0, 100, 5, "%"),
+            default=DEFAULT_PRICE_MARGIN_PCT,
         ),
     ),
 )

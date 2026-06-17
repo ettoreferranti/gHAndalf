@@ -50,6 +50,9 @@ from .const import (
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
+    CONF_PRICE_AVERAGE_SENSOR,
+    CONF_PRICE_MARGIN_PCT,
+    CONF_PRICE_SENSOR,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
@@ -92,11 +95,14 @@ _NUMERIC_ROLES: dict[str, str] = {
     "grid_import_w": CONF_GRID_IMPORT_POWER,
     "grid_export_w": CONF_GRID_EXPORT_POWER,
     "battery_soc": CONF_BATTERY_SOC,
+    "price_now": CONF_PRICE_SENSOR,
+    "price_avg": CONF_PRICE_AVERAGE_SENSOR,
 }
 
 # Config keys the rule engine reads, surfaced as a plain mapping.
 _RULE_CONFIG_KEYS = (
     CONF_SURPLUS_THRESHOLD_W,
+    CONF_PRICE_MARGIN_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,

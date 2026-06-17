@@ -15,6 +15,7 @@ from .const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_PRICE_MARGIN_PCT,
     CONF_REQUIRE_OCCUPANCY,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
@@ -23,6 +24,7 @@ from .const import (
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
+    DEFAULT_PRICE_MARGIN_PCT,
     DEFAULT_REQUIRE_OCCUPANCY,
     DEFAULT_SURPLUS_THRESHOLD_W,
     DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C,
@@ -71,6 +73,49 @@ def rule_solar_surplus(snapshot: Snapshot, cfg: Config) -> AdviceCandidate | Non
         ),
         data={"exporting_w": exporting, "threshold_w": threshold},
     )
+
+
+def rule_grid_price(snapshot: Snapshot, cfg: Config) -> AdviceCandidate | None:
+    """Nudge to use or defer flexible load based on the live electricity price.
+
+    Tariff-source-agnostic: compares the current price against the day's average
+    (both plain sensor readings) with a configurable margin. A flat tariff leaves
+    current == average, so nothing fires; a stepped high/low tariff or 15-minute
+    dynamic slots make cheap/pricey windows light up automatically — same rule,
+    only the data changes.
+    """
+    price = snapshot.get("price_now")
+    average = snapshot.get("price_avg")
+    if price is None or average is None or average <= 0:
+        return None
+    margin = cfg.get(CONF_PRICE_MARGIN_PCT, DEFAULT_PRICE_MARGIN_PCT) / 100
+
+    if price <= average * (1 - margin):
+        pct = round((1 - price / average) * 100)
+        return AdviceCandidate(
+            key="grid_price_cheap",
+            category=Category.ENERGY,
+            urgency=Urgency.INFO,
+            message=(
+                f"Electricity is cheap right now ({price:g} CHF/kWh, about {pct}% "
+                "below today's average) — good time for a flexible load like the "
+                "dishwasher, laundry, or charging the car."
+            ),
+            data={"price": price, "average": average, "pct_from_avg": -pct},
+        )
+    if price >= average * (1 + margin):
+        pct = round((price / average - 1) * 100)
+        return AdviceCandidate(
+            key="grid_price_expensive",
+            category=Category.ENERGY,
+            urgency=Urgency.INFO,
+            message=(
+                f"Electricity is pricey right now ({price:g} CHF/kWh, about {pct}% "
+                "above today's average) — hold off on big flexible loads if you can."
+            ),
+            data={"price": price, "average": average, "pct_from_avg": pct},
+        )
+    return None
 
 
 def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
@@ -230,7 +275,7 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
 
 
 # Single-result rules (return one candidate or None).
-RULES = (rule_solar_surplus,)
+RULES = (rule_solar_surplus, rule_grid_price)
 # Multi-result rules (return a list of candidates).
 MULTI_RULES = (rule_dehumidifier, rule_dehumidifier_off, rule_co2_ventilate)
 

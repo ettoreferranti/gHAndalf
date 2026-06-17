@@ -19,6 +19,12 @@ CONF_CONSUMPTION_POWER: Final = "household_consumption_power"
 CONF_GRID_IMPORT_POWER: Final = "grid_import_power"
 CONF_GRID_EXPORT_POWER: Final = "grid_export_power"
 CONF_BATTERY_SOC: Final = "battery_soc"
+# Dynamic-tariff coaching. Tariff-source-agnostic: just a "current price" sensor
+# and a "reference/average price" sensor (e.g. EKZ current_price + average_today).
+# Works for a flat or stepped high/low tariff today and 15-minute dynamic slots
+# from 2026-09-01 with no rule changes — only the data varies, not the shape.
+CONF_PRICE_SENSOR: Final = "electricity_price_sensor"
+CONF_PRICE_AVERAGE_SENSOR: Final = "electricity_price_average_sensor"
 
 # Presence (optional): persons used to decide "is anyone home" for nudge-gating.
 CONF_PERSONS: Final = "persons"
@@ -63,6 +69,8 @@ CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
+# How far below/above the day's average price counts as "cheap"/"pricey".
+CONF_PRICE_MARGIN_PCT: Final = "price_margin_pct"
 CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
 CONF_HUMIDITY_OFF_THRESHOLD_PCT: Final = "humidity_off_threshold_pct"
 CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"
@@ -92,6 +100,7 @@ MIN_SCAN_INTERVAL: Final = 10
 MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
+DEFAULT_PRICE_MARGIN_PCT: Final = 15  # % from the day's average to call cheap/pricey
 DEFAULT_HUMIDITY_THRESHOLD_PCT: Final = 60  # %RH above which to suggest dehumidifying
 DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT: Final = (
     45  # %RH at/below which to suggest turning off
