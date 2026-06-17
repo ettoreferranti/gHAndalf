@@ -30,6 +30,7 @@ from custom_components.ghandalf.const import (
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
+    CONF_REQUIRE_OCCUPANCY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
 )
@@ -401,7 +402,7 @@ async def test_co2_advice_suppressed_when_venting_would_import_moisture(
 
 
 async def test_co2_advice_suppressed_when_room_unoccupied(hass: HomeAssistant) -> None:
-    """An empty room (motion cleared past the grace) is skipped; walking in fires."""
+    """With the gate on, an empty room (motion past grace) is skipped; walk-in fires."""
     area = ar.async_get(hass).async_get_or_create("Office")
     reg = er.async_get(hass)
     co2 = reg.async_get_or_create(
@@ -427,6 +428,7 @@ async def test_co2_advice_suppressed_when_room_unoccupied(hass: HomeAssistant) -
             CONF_CONSUMPTION_POWER: "sensor.cons",
             CONF_CO2_SENSORS: [co2.entity_id],
             CONF_OCCUPANCY_SENSORS: [occ.entity_id],
+            CONF_REQUIRE_OCCUPANCY: True,
         },
     )
     entry.add_to_hass(hass)

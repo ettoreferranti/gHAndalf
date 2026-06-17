@@ -7,6 +7,7 @@ from custom_components.ghandalf.const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_REQUIRE_OCCUPANCY,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
@@ -23,6 +24,8 @@ from custom_components.ghandalf.rules import (
 
 _OFF = {CONF_HUMIDITY_OFF_THRESHOLD_PCT: 45, CONF_DEHUMIDIFIER_RUNNING_WATTS: 10}
 _CO2 = {CONF_CO2_THRESHOLD_PPM: 1000}
+# The occupancy gate is opt-in, so tests that exercise it enable it explicitly.
+_CO2_OCC = {CONF_CO2_THRESHOLD_PPM: 1000, CONF_REQUIRE_OCCUPANCY: True}
 
 
 def _co2_snap(
@@ -452,24 +455,30 @@ def test_co2_no_moisture_gate_when_outdoor_humidity_missing():
     assert len(rule_co2_ventilate(snap, _CO2)) == 1
 
 
-# --- occupancy gate ---------------------------------------------------------
-def test_co2_suppressed_when_room_empty():
+# --- occupancy gate (opt-in) ------------------------------------------------
+def test_co2_occupancy_gate_off_by_default():
+    # Default config: an empty room still gets the nudge (gate is opt-in).
     snap = _co2_snap(("Office", 1500.0), occupied=False)
-    assert rule_co2_ventilate(snap, _CO2) == []
-
-
-def test_co2_fires_when_room_occupied():
-    snap = _co2_snap(("Office", 1500.0), occupied=True)
     assert len(rule_co2_ventilate(snap, _CO2)) == 1
 
 
+def test_co2_suppressed_when_room_empty_and_gate_enabled():
+    snap = _co2_snap(("Office", 1500.0), occupied=False)
+    assert rule_co2_ventilate(snap, _CO2_OCC) == []
+
+
+def test_co2_fires_when_room_occupied_and_gate_enabled():
+    snap = _co2_snap(("Office", 1500.0), occupied=True)
+    assert len(rule_co2_ventilate(snap, _CO2_OCC)) == 1
+
+
 def test_co2_occupancy_defaults_to_occupied_when_unknown():
-    # No "occupied" key (e.g. no sensor mapped) -> default occupied -> fires.
+    # Gate on but no "occupied" key (e.g. no sensor mapped) -> default occupied.
     snap = {
         "outdoor_temp": None,
         "co2_rooms": [{"entity_id": "sensor.office", "name": "Office", "ppm": 1500.0}],
     }
-    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+    assert len(rule_co2_ventilate(snap, _CO2_OCC)) == 1
 
 
 def test_co2_empty_room_does_not_block_later_occupied_room():
@@ -490,7 +499,7 @@ def test_co2_empty_room_does_not_block_later_occupied_room():
             },
         ],
     }
-    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2)] == ["Busy"]
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2_OCC)] == ["Busy"]
 
 
 def test_co2_gate_blocked_room_does_not_block_later_room():

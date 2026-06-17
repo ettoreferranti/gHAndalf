@@ -15,6 +15,7 @@ from .const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_REQUIRE_OCCUPANCY,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
@@ -22,6 +23,7 @@ from .const import (
     DEFAULT_DEHUMIDIFIER_RUNNING_WATTS,
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
+    DEFAULT_REQUIRE_OCCUPANCY,
     DEFAULT_SURPLUS_THRESHOLD_W,
     DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C,
     DEFAULT_VENTILATE_MIN_OUTDOOR_TEMP_C,
@@ -184,12 +186,13 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
 
     Window state is paired to the room by HA area (in the coordinator), so we
     don't nag when the room is already being ventilated. The nudge is also held
-    back when the room is empty (no one to act on it) or when the outdoor air
-    wouldn't actually help — see ``_venting_blocked``. Outdoor temperature, if
-    mapped, is added to the message for context.
+    back when the outdoor air wouldn't actually help (see ``_venting_blocked``)
+    and, *only if the optional occupancy gate is enabled*, when the room is
+    empty. Outdoor temperature, if mapped, is added to the message for context.
     """
     rooms = snapshot.get("co2_rooms") or []
     threshold = cfg.get(CONF_CO2_THRESHOLD_PPM, DEFAULT_CO2_THRESHOLD_PPM)
+    require_occupancy = cfg.get(CONF_REQUIRE_OCCUPANCY, DEFAULT_REQUIRE_OCCUPANCY)
     outdoor = snapshot.get("outdoor_temp")
     out: list[AdviceCandidate] = []
     for room in rooms:
@@ -198,8 +201,8 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
             continue
         if room.get("window_open"):
             continue  # already being aired out
-        if not room.get("occupied", True):
-            continue  # nobody in the room (or just left) — no one to nudge
+        if require_occupancy and not room.get("occupied", True):
+            continue  # opt-in: only nudge a room someone's actually in
         if _venting_blocked(room, snapshot, cfg):
             continue  # outdoor air too cold/hot, or more humid than the room
         message = (

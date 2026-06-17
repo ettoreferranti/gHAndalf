@@ -60,6 +60,10 @@ CONF_CO2_THRESHOLD_PPM: Final = "co2_threshold_ppm"
 # it (too cold / too hot) the ventilate nudge is suppressed.
 CONF_VENTILATE_MIN_OUTDOOR_TEMP_C: Final = "ventilate_min_outdoor_temp_c"
 CONF_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = "ventilate_max_outdoor_temp_c"
+# Opt-in: only nudge to air out a room that's currently occupied. Off by default
+# because high CO2 is worth clearing even if you're in the next room or about to
+# walk in. When off, the occupancy sensors/grace below have no effect.
+CONF_REQUIRE_OCCUPANCY: Final = "require_occupancy"
 # How long after an occupancy sensor goes quiet a room still counts as occupied —
 # covers a present-but-still person whose motion sensor has cleared.
 CONF_OCCUPANCY_GRACE_MINUTES: Final = "occupancy_grace_minutes"
@@ -91,6 +95,7 @@ DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = 28
 # A room stays "occupied" for this long after its last motion, so we don't treat a
 # sitting-still person as gone. Edit to taste.
 DEFAULT_OCCUPANCY_GRACE_MINUTES: Final = 15
+DEFAULT_REQUIRE_OCCUPANCY: Final = False  # occupancy gate is opt-in
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"
