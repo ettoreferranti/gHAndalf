@@ -215,6 +215,9 @@ def test_dehumidifier_message_drops_trailing_zero():
 def test_dehumidifier_fires_at_exact_threshold():
     out = rule_dehumidifier(_rooms(("R", 60.0)), {CONF_HUMIDITY_THRESHOLD_PCT: 60})
     assert len(out) == 1
+    # At the threshold the reading isn't *above* it, so the wording must not claim so.
+    assert "at or above 60%" in out[0].message
+    assert "(above 60%)" not in out[0].message
 
 
 def test_dehumidifier_uses_default_threshold():

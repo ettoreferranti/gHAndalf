@@ -47,11 +47,19 @@ def _status_attrs(data: dict[str, Any]) -> dict[str, Any]:
 
 def _advice_attrs(data: dict[str, Any]) -> dict[str, Any]:
     advice = data.get("advice", [])
+    messages = [a["message"] for a in advice]
     return {
         "advice": advice,
         "pending_nudges": data.get("pending_nudges", []),
         "presence_home": data.get("presence_home"),
-        "summary": advice[0]["message"] if advice else "No advice right now.",
+        "summary": messages[0] if messages else "No advice right now.",
+        # Ready to drop straight into a Markdown card: one bullet per advice, each
+        # on its own line. Falls back to a plain line when there's nothing to say.
+        "advice_markdown": (
+            "\n".join(f"- {m}" for m in messages)
+            if messages
+            else "No advice right now."
+        ),
     }
 
 

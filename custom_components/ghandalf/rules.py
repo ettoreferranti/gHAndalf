@@ -99,7 +99,7 @@ def rule_dehumidifier(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
                 urgency=Urgency.ACT,
                 message=(
                     f"Humidity in {room['name']} is {round(humidity)}% "
-                    f"(above {threshold:g}%). Time to run the dehumidifier."
+                    f"(at or above {threshold:g}%). Time to run the dehumidifier."
                 ),
                 data={
                     "room": room["name"],
