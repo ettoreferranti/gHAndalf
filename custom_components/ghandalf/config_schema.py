@@ -24,6 +24,7 @@ from .const import (
     CONF_DEHUMIDIFIER_POWER_SENSORS,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_DEHUMIDIFIER_SENSORS,
+    CONF_FEEDIN_RATE,
     CONF_GRID_EXPORT_POWER,
     CONF_GRID_IMPORT_POWER,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
@@ -172,6 +173,7 @@ ENERGY = Section(
             _number(0, 100, 5, "%"),
             default=DEFAULT_PRICE_MARGIN_PCT,
         ),
+        Field(CONF_FEEDIN_RATE, _number(0, 1, 0.001, "CHF/kWh")),
     ),
 )
 

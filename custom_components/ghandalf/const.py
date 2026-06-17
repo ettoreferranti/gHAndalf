@@ -71,6 +71,9 @@ CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
 # How far below/above the day's average price counts as "cheap"/"pricey".
 CONF_PRICE_MARGIN_PCT: Final = "price_margin_pct"
+# What EKZ pays per exported kWh (CHF/kWh, incl. HKN bonus if claimed). With the
+# import price, it quantifies the self-consumption saving in the solar nudge.
+CONF_FEEDIN_RATE: Final = "feedin_rate_chf_per_kwh"
 CONF_HUMIDITY_THRESHOLD_PCT: Final = "humidity_threshold_pct"
 CONF_HUMIDITY_OFF_THRESHOLD_PCT: Final = "humidity_off_threshold_pct"
 CONF_DEHUMIDIFIER_RUNNING_WATTS: Final = "dehumidifier_running_watts"

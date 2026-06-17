@@ -5,6 +5,7 @@ from __future__ import annotations
 from custom_components.ghandalf.const import (
     CONF_CO2_THRESHOLD_PPM,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
+    CONF_FEEDIN_RATE,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_PRICE_MARGIN_PCT,
@@ -143,6 +144,47 @@ def test_surplus_uses_default_threshold_when_unset():
     # No threshold in cfg -> default 1000; 1500 exported should fire.
     advice = rule_solar_surplus({"net_grid_w": -1500.0, "surplus_w": 1500.0}, {})
     assert advice is not None
+
+
+# --- solar surplus: feed-in saving line -------------------------------------
+def _surplus_snap(price=None):
+    snap = {"net_grid_w": -3000.0, "surplus_w": 3000.0}
+    if price is not None:
+        snap["price_now"] = price
+    return snap
+
+
+def test_surplus_savings_line_when_price_and_feedin_known():
+    # Import 0.70, feed-in 0.10 -> self-consuming saves 60 Rp/kWh (clean rounding).
+    cfg = {CONF_SURPLUS_THRESHOLD_W: 1000, CONF_FEEDIN_RATE: 0.10}
+    c = rule_solar_surplus(_surplus_snap(0.70), cfg)
+    assert c.message.startswith("You're sending about 3000 W")  # base kept
+    assert "top up the car." in c.message
+    assert c.message.endswith(
+        "Using it now instead of exporting saves about 60 Rp/kWh."
+    )
+    assert c.data["saved_rp_per_kwh"] == 60
+
+
+def test_surplus_no_savings_line_without_feedin():
+    c = rule_solar_surplus(_surplus_snap(0.21), {CONF_SURPLUS_THRESHOLD_W: 1000})
+    assert "saves about" not in c.message
+    assert "saved_rp_per_kwh" not in c.data
+    assert c.message.endswith("top up the car.")
+
+
+def test_surplus_no_savings_line_without_price():
+    cfg = {CONF_SURPLUS_THRESHOLD_W: 1000, CONF_FEEDIN_RATE: 0.10}
+    c = rule_solar_surplus(_surplus_snap(price=None), cfg)
+    assert "saves about" not in c.message
+
+
+def test_surplus_no_savings_line_when_price_not_above_feedin():
+    cfg = {CONF_SURPLUS_THRESHOLD_W: 1000, CONF_FEEDIN_RATE: 0.13}
+    # Export pays the same as import -> nothing saved (boundary, kills > vs >=).
+    assert "saves about" not in rule_solar_surplus(_surplus_snap(0.13), cfg).message
+    # Export pays more than import -> nothing saved (kills > vs <).
+    assert "saves about" not in rule_solar_surplus(_surplus_snap(0.10), cfg).message
 
 
 # --- dynamic-tariff price window --------------------------------------------

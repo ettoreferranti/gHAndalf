@@ -42,7 +42,8 @@
           "surplus_threshold_w": "Solar-surplus threshold",
           "electricity_price_sensor": "Current electricity price",
           "electricity_price_average_sensor": "Average price today",
-          "price_margin_pct": "Cheap/pricey margin"
+          "price_margin_pct": "Cheap/pricey margin",
+          "feedin_rate_chf_per_kwh": "Solar feed-in rate"
         },
         "data_description": {
           "grid_import_power": "Optional. Lets gHAndalf tell real export from battery charging.",
@@ -51,7 +52,8 @@
           "surplus_threshold_w": "Only suggest using solar once this much (W) is going to the grid. Default 1000.",
           "electricity_price_sensor": "Optional. Your live import price (e.g. EKZ current price). With the average below, gHAndalf nudges when it's a cheap or pricey moment to run flexible loads.",
           "electricity_price_average_sensor": "Optional. The day's average/reference price to compare against (e.g. EKZ average price today). A flat tariff stays silent; a stepped or 15-min dynamic tariff lights up automatically.",
-          "price_margin_pct": "How far below/above the average counts as cheap/pricey. Default 15%."
+          "price_margin_pct": "How far below/above the average counts as cheap/pricey. Default 15%.",
+          "feedin_rate_chf_per_kwh": "Optional. What you're paid per exported kWh in CHF/kWh (e.g. 0.13 = 13 Rp, incl. HKN bonus if you claim it). With the current price above, the solar-surplus nudge shows how much self-consuming saves. Update each quarter."
         }
       },
       "air_quality": {
