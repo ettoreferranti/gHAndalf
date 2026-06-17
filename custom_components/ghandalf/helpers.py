@@ -6,7 +6,7 @@ string value) so they are trivially unit- and mutation-testable.
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import datetime, time, timedelta
 from math import exp
 from typing import Any
 
@@ -87,6 +87,26 @@ def absolute_humidity(temp_c: float | None, rh_pct: float | None) -> float | Non
         return None
     saturation = 6.112 * exp(17.67 * temp_c / (temp_c + 243.5))
     return saturation * rh_pct * 2.1674 / (273.15 + temp_c)
+
+
+def occupied_within(
+    state: str | None,
+    last_changed: datetime | None,
+    now: datetime,
+    grace_minutes: float,
+) -> bool:
+    """Whether an occupancy sensor counts a room as occupied.
+
+    ``on`` means occupied now; ``off`` still counts while it's within the grace
+    window of when it last changed, which keeps a present-but-still person (whose
+    motion sensor has dropped out) from being treated as gone. Any other state
+    (``unknown``/``unavailable``) is treated as "no, can't tell".
+    """
+    if state == "on":
+        return True
+    if state == "off" and last_changed is not None:
+        return now - last_changed <= timedelta(minutes=grace_minutes)
+    return False
 
 
 def parse_time(value: str | time | None, default: time | None = None) -> time | None:

@@ -184,8 +184,9 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
 
     Window state is paired to the room by HA area (in the coordinator), so we
     don't nag when the room is already being ventilated. The nudge is also held
-    back when the outdoor air wouldn't actually help — see ``_venting_blocked``.
-    Outdoor temperature, if mapped, is added to the message for context.
+    back when the room is empty (no one to act on it) or when the outdoor air
+    wouldn't actually help — see ``_venting_blocked``. Outdoor temperature, if
+    mapped, is added to the message for context.
     """
     rooms = snapshot.get("co2_rooms") or []
     threshold = cfg.get(CONF_CO2_THRESHOLD_PPM, DEFAULT_CO2_THRESHOLD_PPM)
@@ -197,6 +198,8 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
             continue
         if room.get("window_open"):
             continue  # already being aired out
+        if not room.get("occupied", True):
+            continue  # nobody in the room (or just left) — no one to nudge
         if _venting_blocked(room, snapshot, cfg):
             continue  # outdoor air too cold/hot, or more humid than the room
         message = (

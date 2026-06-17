@@ -31,6 +31,8 @@ from .const import (
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_OCCUPANCY_GRACE_MINUTES,
+    CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
@@ -49,6 +51,7 @@ from .const import (
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_MAX_NUDGES_PER_DAY,
+    DEFAULT_OCCUPANCY_GRACE_MINUTES,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
     DEFAULT_SCAN_INTERVAL,
@@ -105,6 +108,16 @@ def _windows() -> selector.Selector:
     )
 
 
+def _occupancy() -> selector.Selector:
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(
+            domain="binary_sensor",
+            device_class=["occupancy", "motion", "presence"],
+            multiple=True,
+        )
+    )
+
+
 def _number(min_v: float, max_v: float, step: float, unit: str) -> selector.Selector:
     return selector.NumberSelector(
         selector.NumberSelectorConfig(
@@ -156,6 +169,7 @@ AIR_QUALITY = Section(
         ),
         Field(CONF_CO2_SENSORS, _sensor("carbon_dioxide", multiple=True)),
         Field(CONF_WINDOW_SENSORS, _windows()),
+        Field(CONF_OCCUPANCY_SENSORS, _occupancy()),
         Field(CONF_OUTDOOR_TEMP_SENSORS, _sensor("temperature", multiple=True)),
         Field(CONF_OUTDOOR_HUMIDITY_SENSORS, _sensor("humidity", multiple=True)),
         Field(CONF_INDOOR_TEMP_SENSORS, _sensor("temperature", multiple=True)),
@@ -174,6 +188,11 @@ AIR_QUALITY = Section(
             CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
             _number(-30, 40, 1, "°C"),
             default=DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C,
+        ),
+        Field(
+            CONF_OCCUPANCY_GRACE_MINUTES,
+            _number(0, 240, 5, "min"),
+            default=DEFAULT_OCCUPANCY_GRACE_MINUTES,
         ),
     ),
 )

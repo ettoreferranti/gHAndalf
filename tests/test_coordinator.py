@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from freezegun import freeze_time
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ghandalf.const import (
@@ -19,6 +23,7 @@ from custom_components.ghandalf.const import (
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
+    CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
@@ -390,6 +395,49 @@ async def test_co2_advice_suppressed_when_venting_would_import_moisture(
 
     # Dry the outdoor air -> airing out now helps -> advice fires.
     hass.states.async_set("sensor.out_h", "30", {"device_class": "humidity"})
+    await entry.runtime_data.async_refresh()
+    advice = entry.runtime_data.data["advice"]
+    assert any(a["key"].startswith("co2:") for a in advice)
+
+
+async def test_co2_advice_suppressed_when_room_unoccupied(hass: HomeAssistant) -> None:
+    """An empty room (motion cleared past the grace) is skipped; walking in fires."""
+    area = ar.async_get(hass).async_get_or_create("Office")
+    reg = er.async_get(hass)
+    co2 = reg.async_get_or_create(
+        "sensor", "ghandalf_test", "co2", suggested_object_id="office_co2"
+    )
+    occ = reg.async_get_or_create(
+        "binary_sensor", "ghandalf_test", "occ", suggested_object_id="office_motion"
+    )
+    reg.async_update_entity(co2.entity_id, area_id=area.id)
+    reg.async_update_entity(occ.entity_id, area_id=area.id)
+    hass.states.async_set(co2.entity_id, "1300", {"device_class": "carbon_dioxide"})
+    # Motion last cleared 30 min ago -> beyond the 15-min grace -> room is empty.
+    with freeze_time(dt_util.utcnow() - timedelta(minutes=30)):
+        hass.states.async_set(occ.entity_id, "off", {"device_class": "occupancy"})
+    hass.states.async_set("sensor.pv", "1000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_CO2_SENSORS: [co2.entity_id],
+            CONF_OCCUPANCY_SENSORS: [occ.entity_id],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    advice = entry.runtime_data.data["advice"]
+    assert not any(a["key"].startswith("co2:") for a in advice)
+
+    # Someone walks in -> motion on -> advice fires.
+    hass.states.async_set(occ.entity_id, "on", {"device_class": "occupancy"})
     await entry.runtime_data.async_refresh()
     advice = entry.runtime_data.data["advice"]
     assert any(a["key"].startswith("co2:") for a in advice)

@@ -26,12 +26,17 @@ _CO2 = {CONF_CO2_THRESHOLD_PPM: 1000}
 
 
 def _co2_snap(
-    *rooms, outdoor=None, outdoor_humidity=None, indoor_temp=None, indoor_humidity=None
+    *rooms,
+    outdoor=None,
+    outdoor_humidity=None,
+    indoor_temp=None,
+    indoor_humidity=None,
+    occupied=True,
 ):
     """Each room is (name, ppm) or (name, ppm, window_open).
 
-    Indoor temp/humidity (for the moisture gate) apply to every room; the outdoor
-    values live at the snapshot level.
+    Indoor temp/humidity (for the moisture gate) and occupancy apply to every
+    room; the outdoor values live at the snapshot level.
     """
     out = []
     for r in rooms:
@@ -44,6 +49,7 @@ def _co2_snap(
                 "window_open": window_open,
                 "indoor_temp": indoor_temp,
                 "indoor_humidity": indoor_humidity,
+                "occupied": occupied,
             }
         )
     return {
@@ -444,6 +450,47 @@ def test_co2_no_moisture_gate_when_outdoor_humidity_missing():
         ("Office", 1500.0), outdoor=10.0, indoor_temp=21.0, indoor_humidity=40.0
     )
     assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+# --- occupancy gate ---------------------------------------------------------
+def test_co2_suppressed_when_room_empty():
+    snap = _co2_snap(("Office", 1500.0), occupied=False)
+    assert rule_co2_ventilate(snap, _CO2) == []
+
+
+def test_co2_fires_when_room_occupied():
+    snap = _co2_snap(("Office", 1500.0), occupied=True)
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_occupancy_defaults_to_occupied_when_unknown():
+    # No "occupied" key (e.g. no sensor mapped) -> default occupied -> fires.
+    snap = {
+        "outdoor_temp": None,
+        "co2_rooms": [{"entity_id": "sensor.office", "name": "Office", "ppm": 1500.0}],
+    }
+    assert len(rule_co2_ventilate(snap, _CO2)) == 1
+
+
+def test_co2_empty_room_does_not_block_later_occupied_room():
+    snap = {
+        "outdoor_temp": None,
+        "co2_rooms": [
+            {
+                "entity_id": "sensor.empty",
+                "name": "Empty",
+                "ppm": 1500.0,
+                "occupied": False,
+            },
+            {
+                "entity_id": "sensor.busy",
+                "name": "Busy",
+                "ppm": 1500.0,
+                "occupied": True,
+            },
+        ],
+    }
+    assert [c.data["room"] for c in rule_co2_ventilate(snap, _CO2)] == ["Busy"]
 
 
 def test_co2_gate_blocked_room_does_not_block_later_room():

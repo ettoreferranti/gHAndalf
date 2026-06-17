@@ -45,6 +45,9 @@ CONF_OUTDOOR_HUMIDITY_SENSORS: Final = "outdoor_humidity_sensors"
 # room out when that would only make it more humid.
 CONF_INDOOR_TEMP_SENSORS: Final = "indoor_temp_sensors"
 CONF_INDOOR_HUMIDITY_SENSORS: Final = "indoor_humidity_sensors"
+# Optional occupancy/motion sensors, paired to a CO2 room by shared HA area, so we
+# only nudge to air out a room that someone is actually in (or just left).
+CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"
 
 # --- Tunables (options flow) ------------------------------------------------
 CONF_SCAN_INTERVAL: Final = "scan_interval"
@@ -57,6 +60,9 @@ CONF_CO2_THRESHOLD_PPM: Final = "co2_threshold_ppm"
 # it (too cold / too hot) the ventilate nudge is suppressed.
 CONF_VENTILATE_MIN_OUTDOOR_TEMP_C: Final = "ventilate_min_outdoor_temp_c"
 CONF_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = "ventilate_max_outdoor_temp_c"
+# How long after an occupancy sensor goes quiet a room still counts as occupied —
+# covers a present-but-still person whose motion sensor has cleared.
+CONF_OCCUPANCY_GRACE_MINUTES: Final = "occupancy_grace_minutes"
 
 # Nudge-gate tunables (anti-alert-fatigue).
 CONF_QUIET_START: Final = "quiet_hours_start"
@@ -82,6 +88,9 @@ DEFAULT_CO2_THRESHOLD_PPM: Final = 1000  # ppm above which to suggest ventilatin
 # control (brief "shock airing" is fine even when cold).
 DEFAULT_VENTILATE_MIN_OUTDOOR_TEMP_C: Final = 3
 DEFAULT_VENTILATE_MAX_OUTDOOR_TEMP_C: Final = 28
+# A room stays "occupied" for this long after its last motion, so we don't treat a
+# sitting-still person as gone. Edit to taste.
+DEFAULT_OCCUPANCY_GRACE_MINUTES: Final = 15
 
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"
