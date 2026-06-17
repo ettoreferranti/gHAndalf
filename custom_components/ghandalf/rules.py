@@ -13,6 +13,7 @@ from typing import Any
 from .const import (
     CONF_CO2_THRESHOLD_PPM,
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
+    CONF_FEEDIN_RATE,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_PRICE_MARGIN_PCT,
@@ -55,7 +56,13 @@ def _exporting_w(snapshot: Snapshot) -> float | None:
 
 
 def rule_solar_surplus(snapshot: Snapshot, cfg: Config) -> AdviceCandidate | None:
-    """Suggest running a flexible load when meaningful solar is going to grid."""
+    """Suggest running a flexible load when meaningful solar is going to grid.
+
+    When both the import price and the feed-in rate are known, the message also
+    quantifies the saving: self-consuming a kWh avoids buying it at the import
+    price while only forgoing the (much lower) export pay-out, so the benefit is
+    roughly ``import - feed-in`` per kWh.
+    """
     exporting = _exporting_w(snapshot)
     if exporting is None:
         return None
@@ -63,15 +70,25 @@ def rule_solar_surplus(snapshot: Snapshot, cfg: Config) -> AdviceCandidate | Non
     if exporting < threshold:
         return None
     watts = round(exporting)
+    message = (
+        f"You're sending about {watts} W of solar to the grid right now. "
+        "Good time to run a flexible load — dishwasher, laundry, or top up the car."
+    )
+    data: dict[str, Any] = {"exporting_w": exporting, "threshold_w": threshold}
+
+    price = snapshot.get("price_now")
+    feed_in = cfg.get(CONF_FEEDIN_RATE)
+    if price is not None and feed_in is not None and price > feed_in:
+        saved_rp = round((price - feed_in) * 100)
+        message += f" Using it now instead of exporting saves about {saved_rp} Rp/kWh."
+        data["saved_rp_per_kwh"] = saved_rp
+
     return AdviceCandidate(
         key="solar_surplus",
         category=Category.ENERGY,
         urgency=Urgency.INFO,
-        message=(
-            f"You're sending about {watts} W of solar to the grid right now. "
-            "Good time to run a flexible load — dishwasher, laundry, or top up the car."
-        ),
-        data={"exporting_w": exporting, "threshold_w": threshold},
+        message=message,
+        data=data,
     )
 
 
