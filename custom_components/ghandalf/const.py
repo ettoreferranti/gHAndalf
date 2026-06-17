@@ -23,6 +23,17 @@ CONF_BATTERY_SOC: Final = "battery_soc"
 # Presence (optional): persons used to decide "is anyone home" for nudge-gating.
 CONF_PERSONS: Final = "persons"
 
+# Notifications (optional): HA notify entities to push each fired nudge to (via
+# notify.send_message). Mapping a target is the on-switch — with none set,
+# gHAndalf stays silent and advice lives only on the sensor.
+CONF_NOTIFY_TARGETS: Final = "notify_targets"
+# Optional: also post each nudge to Home Assistant's own notification panel (the
+# bell in the web UI) via persistent_notification. Independent of the phone push.
+CONF_NOTIFY_PERSISTENT: Final = "notify_persistent"
+DEFAULT_NOTIFY_PERSISTENT: Final = False
+# Title shown on every pushed nudge.
+NOTIFY_TITLE: Final = "🧙 gHAndalf"
+
 # Air quality & comfort (pillar 2). Humidity sensors for rooms that have a
 # dehumidifier — high humidity in one of these prompts "run the dehumidifier".
 CONF_DEHUMIDIFIER_SENSORS: Final = "dehumidifier_sensors"

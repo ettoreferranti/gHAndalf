@@ -55,6 +55,7 @@ async def test_options_menu_lists_sections(hass: HomeAssistant) -> None:
         "energy",
         "air_quality",
         "presence",
+        "notifications",
         "advanced",
     }
 

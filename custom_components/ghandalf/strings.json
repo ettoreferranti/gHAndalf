@@ -27,6 +27,7 @@
           "energy": "Energy & solar",
           "air_quality": "Air quality & comfort",
           "presence": "People & presence",
+          "notifications": "Notifications",
           "advanced": "Nudges & timing"
         }
       },
@@ -95,6 +96,18 @@
         },
         "data_description": {
           "persons": "Optional. If set, gHAndalf only nudges when at least one of these people is home. Leave empty to always nudge."
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Optionally push nudges to your phone. Without a target, advice stays on the sensor only.",
+        "data": {
+          "notify_targets": "Notify targets",
+          "notify_persistent": "Also show in Home Assistant's notifications"
+        },
+        "data_description": {
+          "notify_targets": "Notify entities to push each nudge to (e.g. your phone's companion-app notifier). The same anti-nagging timing applies — only what passes the nudge gate is sent.",
+          "notify_persistent": "Also post each nudge to Home Assistant's own notification panel (the bell in the sidebar), not just your phone. Keyed per advice, so a repeat updates in place. Default off."
         }
       },
       "advanced": {

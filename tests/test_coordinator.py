@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from freezegun import freeze_time
@@ -9,7 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_mock_service,
+)
 
 from custom_components.ghandalf.const import (
     CONF_BATTERY_SOC,
@@ -23,6 +27,8 @@ from custom_components.ghandalf.const import (
     CONF_HUMIDITY_THRESHOLD_PCT,
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
+    CONF_NOTIFY_PERSISTENT,
+    CONF_NOTIFY_TARGETS,
     CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
@@ -443,3 +449,124 @@ async def test_co2_advice_suppressed_when_room_unoccupied(hass: HomeAssistant) -
     await entry.runtime_data.async_refresh()
     advice = entry.runtime_data.data["advice"]
     assert any(a["key"].startswith("co2:") for a in advice)
+
+
+def _nudge_entry(**extra) -> MockConfigEntry:
+    """A config entry whose solar-surplus nudge fires deterministically."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_DEBOUNCE_SECONDS: 0,
+            CONF_QUIET_START: "00:00:00",
+            CONF_QUIET_END: "00:00:00",
+            **extra,
+        },
+    )
+
+
+async def test_notification_pushed_when_nudge_fires(hass: HomeAssistant) -> None:
+    """A fired nudge is pushed to each configured notify target, once."""
+    calls = async_mock_service(hass, "notify", "send_message")
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = _nudge_entry(**{CONF_NOTIFY_TARGETS: ["notify.phone"]})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.data["pending_nudges"] == ["solar_surplus"]
+    assert len(calls) == 1
+    assert calls[0].data["entity_id"] == ["notify.phone"]
+    assert calls[0].data["title"] == "🧙 gHAndalf"
+    assert calls[0].data["message"].startswith("You're sending about 2000 W")
+
+    # Still cooling down on the next cycle -> no duplicate push.
+    await entry.runtime_data.async_refresh()
+    assert len(calls) == 1
+
+
+async def test_no_notification_without_a_target(hass: HomeAssistant) -> None:
+    """The nudge still fires on the sensor, but nothing is pushed."""
+    calls = async_mock_service(hass, "notify", "send_message")
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = _nudge_entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.data["pending_nudges"] == ["solar_surplus"]
+    assert calls == []
+
+
+async def test_persistent_notification_when_panel_enabled(hass: HomeAssistant) -> None:
+    """The panel toggle posts to persistent_notification, keyed per advice."""
+    notify_calls = async_mock_service(hass, "notify", "send_message")
+    panel_calls = async_mock_service(hass, "persistent_notification", "create")
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    # Panel on, no phone target -> web-only.
+    entry = _nudge_entry(**{CONF_NOTIFY_PERSISTENT: True})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.data["pending_nudges"] == ["solar_surplus"]
+    assert notify_calls == []  # no phone target mapped
+    assert len(panel_calls) == 1
+    assert panel_calls[0].data["notification_id"] == "ghandalf_solar_surplus"
+    assert panel_calls[0].data["title"] == "🧙 gHAndalf"
+    assert panel_calls[0].data["message"].startswith("You're sending about 2000 W")
+
+
+async def test_both_channels_when_target_and_panel_enabled(
+    hass: HomeAssistant,
+) -> None:
+    """A phone target and the panel toggle each get the nudge."""
+    notify_calls = async_mock_service(hass, "notify", "send_message")
+    panel_calls = async_mock_service(hass, "persistent_notification", "create")
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = _nudge_entry(
+        **{CONF_NOTIFY_TARGETS: ["notify.phone"], CONF_NOTIFY_PERSISTENT: True}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert len(notify_calls) == 1
+    assert len(panel_calls) == 1
+
+
+async def test_slow_notifier_does_not_stall_updates(hass: HomeAssistant) -> None:
+    """A hung notify service must not freeze the coordinator's update loop."""
+    release = asyncio.Event()
+
+    async def _hang(call):
+        await release.wait()  # never returns until we let it
+
+    hass.services.async_register("notify", "send_message", _hang)
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = _nudge_entry(**{CONF_NOTIFY_TARGETS: ["notify.phone"]})
+    entry.add_to_hass(hass)
+    # Setup fires the nudge and dispatches the (hanging) notify, but must return.
+    assert await hass.config_entries.async_setup(entry.entry_id)
+
+    assert entry.runtime_data.last_update_success
+    assert entry.runtime_data.data["pending_nudges"] == ["solar_surplus"]
+
+    # A subsequent refresh also completes, despite the notifier still hanging.
+    await entry.runtime_data.async_refresh()
+    assert entry.runtime_data.last_update_success
+
+    release.set()  # let the background notify task finish so teardown is clean
+    await hass.async_block_till_done()

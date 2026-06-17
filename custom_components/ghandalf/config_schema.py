@@ -31,6 +31,8 @@ from .const import (
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_NOTIFY_PERSISTENT,
+    CONF_NOTIFY_TARGETS,
     CONF_OCCUPANCY_GRACE_MINUTES,
     CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
@@ -52,6 +54,7 @@ from .const import (
     DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT,
     DEFAULT_HUMIDITY_THRESHOLD_PCT,
     DEFAULT_MAX_NUDGES_PER_DAY,
+    DEFAULT_NOTIFY_PERSISTENT,
     DEFAULT_OCCUPANCY_GRACE_MINUTES,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
@@ -97,6 +100,12 @@ def _sensor(device_class: str, multiple: bool = False) -> selector.Selector:
 def _persons() -> selector.Selector:
     return selector.EntitySelector(
         selector.EntitySelectorConfig(domain="person", multiple=True)
+    )
+
+
+def _notify_targets() -> selector.Selector:
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="notify", multiple=True)
     )
 
 
@@ -206,6 +215,18 @@ AIR_QUALITY = Section(
 
 PRESENCE = Section("presence", (Field(CONF_PERSONS, _persons()),))
 
+NOTIFICATIONS = Section(
+    "notifications",
+    (
+        Field(CONF_NOTIFY_TARGETS, _notify_targets()),
+        Field(
+            CONF_NOTIFY_PERSISTENT,
+            selector.BooleanSelector(),
+            default=DEFAULT_NOTIFY_PERSISTENT,
+        ),
+    ),
+)
+
 ADVANCED = Section(
     "advanced",
     (
@@ -234,7 +255,13 @@ ADVANCED = Section(
     ),
 )
 
-SECTIONS: tuple[Section, ...] = (ENERGY, AIR_QUALITY, PRESENCE, ADVANCED)
+SECTIONS: tuple[Section, ...] = (
+    ENERGY,
+    AIR_QUALITY,
+    PRESENCE,
+    NOTIFICATIONS,
+    ADVANCED,
+)
 SECTION_BY_ID: dict[str, Section] = {s.step_id: s for s in SECTIONS}
 MENU_OPTIONS: list[str] = [s.step_id for s in SECTIONS]
 

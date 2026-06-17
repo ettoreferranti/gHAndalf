@@ -69,6 +69,9 @@ class GHandalfOptionsFlow(OptionsFlow):
     async def async_step_presence(self, user_input=None) -> ConfigFlowResult:
         return await self._edit(SECTION_BY_ID["presence"], user_input)
 
+    async def async_step_notifications(self, user_input=None) -> ConfigFlowResult:
+        return await self._edit(SECTION_BY_ID["notifications"], user_input)
+
     async def async_step_advanced(self, user_input=None) -> ConfigFlowResult:
         return await self._edit(SECTION_BY_ID["advanced"], user_input)
 
