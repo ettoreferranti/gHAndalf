@@ -7,6 +7,7 @@ from custom_components.ghandalf.const import (
     CONF_DEHUMIDIFIER_RUNNING_WATTS,
     CONF_HUMIDITY_OFF_THRESHOLD_PCT,
     CONF_HUMIDITY_THRESHOLD_PCT,
+    CONF_PRICE_MARGIN_PCT,
     CONF_REQUIRE_OCCUPANCY,
     CONF_SURPLUS_THRESHOLD_W,
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
@@ -19,6 +20,7 @@ from custom_components.ghandalf.rules import (
     rule_co2_ventilate,
     rule_dehumidifier,
     rule_dehumidifier_off,
+    rule_grid_price,
     rule_solar_surplus,
 )
 
@@ -141,6 +143,87 @@ def test_surplus_uses_default_threshold_when_unset():
     # No threshold in cfg -> default 1000; 1500 exported should fire.
     advice = rule_solar_surplus({"net_grid_w": -1500.0, "surplus_w": 1500.0}, {})
     assert advice is not None
+
+
+# --- dynamic-tariff price window --------------------------------------------
+_PRICE = {CONF_PRICE_MARGIN_PCT: 15}
+
+
+def _price_snap(price, average):
+    return {"price_now": price, "price_avg": average}
+
+
+def test_grid_price_cheap_fires():
+    c = rule_grid_price(_price_snap(0.08, 0.20), _PRICE)  # 60% below average
+    assert c.key == "grid_price_cheap"
+    assert c.category is Category.ENERGY
+    assert c.urgency is Urgency.INFO
+    assert c.message.startswith("Electricity is cheap right now (0.08 CHF/kWh, ")
+    assert "about 60% below today's average" in c.message
+    assert c.message.endswith("dishwasher, laundry, or charging the car.")
+    assert c.data == {"price": 0.08, "average": 0.20, "pct_from_avg": -60}
+
+
+def test_grid_price_expensive_fires():
+    c = rule_grid_price(_price_snap(0.32, 0.20), _PRICE)  # 60% above average
+    assert c.key == "grid_price_expensive"
+    assert c.message.startswith("Electricity is pricey right now (0.32 CHF/kWh, ")
+    assert "about 60% above today's average" in c.message
+    assert "hold off on big flexible loads if you can" in c.message
+    assert c.data == {"price": 0.32, "average": 0.20, "pct_from_avg": 60}
+
+
+def test_grid_price_silent_when_flat():
+    assert rule_grid_price(_price_snap(0.1953, 0.1953), _PRICE) is None
+
+
+def test_grid_price_silent_within_margin():
+    assert rule_grid_price(_price_snap(0.21, 0.20), _PRICE) is None  # +5% < 15%
+
+
+# Clean boundary numbers (avg 2.0, margin 50% -> exact 1.0 / 3.0) so the <=/>=
+# comparisons are tested at the exact edge without float rounding.
+_HALF = {CONF_PRICE_MARGIN_PCT: 50}
+
+
+def test_grid_price_cheap_boundary_fires():
+    # Exactly at the threshold (2.0 * 0.5 = 1.0) still counts as cheap.
+    assert rule_grid_price(_price_snap(1.0, 2.0), _HALF).key == "grid_price_cheap"
+    # Just above the threshold -> silent.
+    assert rule_grid_price(_price_snap(1.01, 2.0), _HALF) is None
+
+
+def test_grid_price_expensive_boundary_fires():
+    # Exactly at the threshold (2.0 * 1.5 = 3.0) still counts as pricey.
+    assert rule_grid_price(_price_snap(3.0, 2.0), _HALF).key == "grid_price_expensive"
+    # 2.995 is below the +50% mark (3.0) but above a 49.5% one — pins the margin math.
+    assert rule_grid_price(_price_snap(2.995, 2.0), _HALF) is None
+
+
+def test_grid_price_none_when_data_missing():
+    assert rule_grid_price(_price_snap(None, 0.20), _PRICE) is None
+    assert rule_grid_price(_price_snap(0.10, None), _PRICE) is None
+    assert rule_grid_price({}, _PRICE) is None
+
+
+def test_grid_price_none_when_average_not_positive():
+    assert rule_grid_price(_price_snap(0.0, 0.0), _PRICE) is None
+
+
+def test_grid_price_uses_default_margin():
+    # No margin in cfg -> default 15%; -20% counts as cheap.
+    assert rule_grid_price(_price_snap(0.16, 0.20), {}).key == "grid_price_cheap"
+
+
+def test_grid_price_margin_configurable():
+    cfg = {CONF_PRICE_MARGIN_PCT: 30}
+    assert rule_grid_price(_price_snap(0.25, 0.20), cfg) is None  # +25% < 30%
+
+
+def test_evaluate_rules_includes_grid_price():
+    snap = {"net_grid_w": 0.0, "surplus_w": 0.0, "price_now": 0.10, "price_avg": 0.20}
+    keys = {a.key for a in evaluate_rules(snap, _PRICE)}
+    assert "grid_price_cheap" in keys
 
 
 def test_dehumidifier_fires_only_for_humid_rooms():

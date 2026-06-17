@@ -33,6 +33,8 @@ from custom_components.ghandalf.const import (
     CONF_OUTDOOR_HUMIDITY_SENSORS,
     CONF_OUTDOOR_TEMP_SENSORS,
     CONF_PERSONS,
+    CONF_PRICE_AVERAGE_SENSOR,
+    CONF_PRICE_SENSOR,
     CONF_PV_POWER,
     CONF_QUIET_END,
     CONF_QUIET_START,
@@ -449,6 +451,40 @@ async def test_co2_advice_suppressed_when_room_unoccupied(hass: HomeAssistant) -
     await entry.runtime_data.async_refresh()
     advice = entry.runtime_data.data["advice"]
     assert any(a["key"].startswith("co2:") for a in advice)
+
+
+async def test_grid_price_advice_fires_and_stays_silent_when_flat(
+    hass: HomeAssistant,
+) -> None:
+    """A cheap price (vs the day's average) advises; a flat price stays silent."""
+    _PRICE_ATTRS = {"unit_of_measurement": "CHF/kWh"}
+    hass.states.async_set("sensor.pv", "0", _POWER_ATTRS)  # no solar surplus
+    hass.states.async_set("sensor.cons", "0", _POWER_ATTRS)
+    hass.states.async_set("sensor.price", "0.10", _PRICE_ATTRS)
+    hass.states.async_set("sensor.price_avg", "0.20", _PRICE_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_PRICE_SENSOR: "sensor.price",
+            CONF_PRICE_AVERAGE_SENSOR: "sensor.price_avg",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    keys = [a["key"] for a in entry.runtime_data.data["advice"]]
+    assert "grid_price_cheap" in keys
+
+    # Price equals the average (flat tariff, like 400F today) -> no price advice.
+    hass.states.async_set("sensor.price", "0.20", _PRICE_ATTRS)
+    await entry.runtime_data.async_refresh()
+    keys = [a["key"] for a in entry.runtime_data.data["advice"]]
+    assert not any(k.startswith("grid_price_") for k in keys)
 
 
 def _nudge_entry(**extra) -> MockConfigEntry:
