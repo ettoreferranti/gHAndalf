@@ -13,6 +13,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import (
     area_registry as ar,
 )
@@ -42,6 +43,8 @@ from .const import (
     CONF_INDOOR_HUMIDITY_SENSORS,
     CONF_INDOOR_TEMP_SENSORS,
     CONF_MAX_NUDGES_PER_DAY,
+    CONF_NOTIFY_PERSISTENT,
+    CONF_NOTIFY_TARGETS,
     CONF_OCCUPANCY_GRACE_MINUTES,
     CONF_OCCUPANCY_SENSORS,
     CONF_OUTDOOR_HUMIDITY_SENSORS,
@@ -60,11 +63,13 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_MAX_NUDGES_PER_DAY,
     DEFAULT_MAX_PER_CATEGORY_PER_DAY,
+    DEFAULT_NOTIFY_PERSISTENT,
     DEFAULT_OCCUPANCY_GRACE_MINUTES,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    NOTIFY_TITLE,
 )
 from .helpers import (
     get_conf,
@@ -74,6 +79,7 @@ from .helpers import (
     parse_time,
     solar_surplus_w,
 )
+from .models import AdviceCandidate
 from .nudge_gate import NudgeGate
 from .rules import evaluate_rules
 
@@ -334,6 +340,66 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cfg[key] = value
         return cfg
 
+    async def _send_notifications(self, fired: list[AdviceCandidate]) -> None:
+        """Deliver each freshly-fired nudge to the configured channels.
+
+        The nudge gate has already applied debounce/cooldown/quiet-hours/budgets,
+        so ``fired`` is exactly "deliver these now" — no extra throttling here. Two
+        independent, optional channels: a push to the mapped notify entities, and
+        a post to Home Assistant's own notification panel. With neither configured,
+        gHAndalf stays silent. A failing channel is logged and swallowed: a coach
+        must never break its own update cycle.
+        """
+        targets = get_conf(self.entry, CONF_NOTIFY_TARGETS)
+        persistent = get_conf(
+            self.entry, CONF_NOTIFY_PERSISTENT, DEFAULT_NOTIFY_PERSISTENT
+        )
+        if not fired or (not targets and not persistent):
+            return
+        for candidate in fired:
+            if targets:
+                await self._call_service(
+                    "notify",
+                    "send_message",
+                    {
+                        "entity_id": targets,
+                        "title": NOTIFY_TITLE,
+                        "message": candidate.message,
+                    },
+                )
+            if persistent:
+                await self._call_service(
+                    "persistent_notification",
+                    "create",
+                    {
+                        # Keyed per advice so a repeat updates in place, not stacks.
+                        "notification_id": f"{DOMAIN}_{candidate.key}",
+                        "title": NOTIFY_TITLE,
+                        "message": candidate.message,
+                    },
+                )
+
+    async def _call_service(
+        self, domain: str, service: str, data: dict[str, Any]
+    ) -> None:
+        """Fire a delivery service without ever stalling the update cycle.
+
+        ``blocking=False`` is deliberate: a slow or hung notifier (e.g. a mobile
+        push to an offline phone) must not block ``_async_update_data``, or the
+        whole coordinator freezes and no further nudges ever fire. Delivery runs
+        as a background task; HA logs any delivery failure. We still catch the
+        synchronous ``ServiceNotFound`` from an unmapped/typo'd target.
+        """
+        try:
+            await self.hass.services.async_call(domain, service, data, blocking=False)
+        except HomeAssistantError:
+            _LOGGER.warning(
+                "gHAndalf could not deliver a nudge via %s.%s",
+                domain,
+                service,
+                exc_info=True,
+            )
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Sample mapped entities, derive values, and run rules + nudge gate.
 
@@ -372,4 +438,7 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         values["advice"] = [c.as_dict() for c in candidates]
         values["pending_nudges"] = [c.key for c in fired]
 
+        # Deliver last, after the data is fully built, so notification behaviour
+        # can never affect the snapshot the rest of HA sees.
+        await self._send_notifications(fired)
         return values
