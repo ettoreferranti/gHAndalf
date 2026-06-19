@@ -22,6 +22,7 @@ from custom_components.ghandalf.rules import (
     rule_dehumidifier,
     rule_dehumidifier_off,
     rule_grid_price,
+    rule_laundry_done,
     rule_solar_surplus,
 )
 
@@ -266,6 +267,69 @@ def test_evaluate_rules_includes_grid_price():
     snap = {"net_grid_w": 0.0, "surplus_w": 0.0, "price_now": 0.10, "price_avg": 0.20}
     keys = {a.key for a in evaluate_rules(snap, _PRICE)}
     assert "grid_price_cheap" in keys
+
+
+# --- laundry / appliance done -----------------------------------------------
+def _appliance(name, *, key, awaiting=False, mins=None, running=None):
+    return {
+        "key": key,
+        "name": name,
+        "awaiting_unload": awaiting,
+        "finished_minutes_ago": mins,
+        "running": running,
+    }
+
+
+def test_laundry_done_fires_when_awaiting_unload():
+    snap = {
+        "appliances": [_appliance("Lavatrice 1", key="dev1", awaiting=True, mins=7)]
+    }
+    out = rule_laundry_done(snap, {})
+    assert len(out) == 1
+    c = out[0]
+    assert c.key == "laundry_done:dev1"
+    assert c.category is Category.CHORES
+    assert c.urgency is Urgency.ACT
+    assert c.message == (
+        "Lavatrice 1 finished 7 minutes ago and the door's still closed — "
+        "time to take the laundry out."
+    )
+    assert c.data == {"appliance": "Lavatrice 1", "finished_minutes_ago": 7}
+
+
+def test_laundry_done_says_a_moment_ago_when_just_finished():
+    snap = {"appliances": [_appliance("Washer", key="d", awaiting=True, mins=0)]}
+    assert "finished a moment ago and" in rule_laundry_done(snap, {})[0].message
+
+
+def test_laundry_done_silent_when_not_awaiting():
+    snap = {"appliances": [_appliance("Washer", key="d", awaiting=False, running=True)]}
+    assert rule_laundry_done(snap, {}) == []
+
+
+def test_laundry_done_no_appliances():
+    assert rule_laundry_done({}, {}) == []
+    assert rule_laundry_done({"appliances": []}, {}) == []
+
+
+def test_laundry_done_only_for_awaiting_appliance():
+    snap = {
+        "appliances": [
+            _appliance("Washer", key="w", awaiting=True, mins=3),
+            _appliance("Dryer", key="d", awaiting=False, running=True),
+        ]
+    }
+    assert [c.key for c in rule_laundry_done(snap, {})] == ["laundry_done:w"]
+
+
+def test_evaluate_rules_includes_laundry_done():
+    snap = {
+        "net_grid_w": 0.0,
+        "surplus_w": 0.0,
+        "appliances": [_appliance("Washer", key="w", awaiting=True, mins=5)],
+    }
+    keys = {a.key for a in evaluate_rules(snap, {})}
+    assert "laundry_done:w" in keys
 
 
 def test_dehumidifier_fires_only_for_humid_rooms():

@@ -29,6 +29,14 @@ CONF_PRICE_AVERAGE_SENSOR: Final = "electricity_price_average_sensor"
 # Presence (optional): persons used to decide "is anyone home" for nudge-gating.
 CONF_PERSONS: Final = "persons"
 
+# Appliances (washing machine / dryer / dishwasher). Generic, integration-agnostic:
+# a per-appliance "progress" sensor (minutes-to-end) and/or a power sensor say
+# whether it's running; a door binary_sensor tells when it's been unloaded. The
+# three lists are paired into appliances by shared HA *device*.
+CONF_APPLIANCE_PROGRESS_SENSORS: Final = "appliance_progress_sensors"
+CONF_APPLIANCE_POWER_SENSORS: Final = "appliance_power_sensors"
+CONF_APPLIANCE_DOOR_SENSORS: Final = "appliance_door_sensors"
+
 # Notifications (optional): HA notify entities to push each fired nudge to (via
 # notify.send_message). Mapping a target is the on-switch — with none set,
 # gHAndalf stays silent and advice lives only on the sensor.
@@ -71,6 +79,8 @@ CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SURPLUS_THRESHOLD_W: Final = "surplus_threshold_w"
 # How far below/above the day's average price counts as "cheap"/"pricey".
 CONF_PRICE_MARGIN_PCT: Final = "price_margin_pct"
+# Plug power above which a power-monitored appliance counts as running.
+CONF_APPLIANCE_RUNNING_WATTS: Final = "appliance_running_watts"
 # What EKZ pays per exported kWh (CHF/kWh, incl. HKN bonus if claimed). With the
 # import price, it quantifies the self-consumption saving in the solar nudge.
 CONF_FEEDIN_RATE: Final = "feedin_rate_chf_per_kwh"
@@ -104,6 +114,7 @@ MAX_SCAN_INTERVAL: Final = 600
 
 DEFAULT_SURPLUS_THRESHOLD_W: Final = 1000  # W of PV surplus considered "worth using"
 DEFAULT_PRICE_MARGIN_PCT: Final = 15  # % from the day's average to call cheap/pricey
+DEFAULT_APPLIANCE_RUNNING_WATTS: Final = 10  # plug draw above which it's "running"
 DEFAULT_HUMIDITY_THRESHOLD_PCT: Final = 60  # %RH above which to suggest dehumidifying
 DEFAULT_HUMIDITY_OFF_THRESHOLD_PCT: Final = (
     45  # %RH at/below which to suggest turning off

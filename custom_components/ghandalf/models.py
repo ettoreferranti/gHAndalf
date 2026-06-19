@@ -12,6 +12,7 @@ class Category(StrEnum):
 
     ENERGY = "energy"
     AIR_QUALITY = "air_quality"
+    CHORES = "chores"
 
 
 class Urgency(StrEnum):

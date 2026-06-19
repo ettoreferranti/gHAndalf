@@ -109,6 +109,47 @@ def occupied_within(
     return False
 
 
+def next_appliance_state(
+    prev: dict[str, Any],
+    running_known: bool,
+    running: bool,
+    door_open: bool | None,
+    now: datetime,
+) -> dict[str, Any]:
+    """Advance an appliance's cycle state (running -> finished -> awaiting unload).
+
+    Pure and stateful-by-value: given the previous state and this cycle's reading,
+    returns the new state. ``awaiting_unload`` is armed only by a real *finish*
+    (was running, now isn't) and is held across later "unknown" readings — a smart
+    appliance often drops offline minutes after finishing while the laundry is
+    still inside — until the door opens (or a new cycle starts), which clears it.
+
+    State dict keys: ``was_running`` (bool), ``awaiting_unload`` (bool),
+    ``finished_at`` (datetime | None).
+    """
+    was_running = prev.get("was_running", False)
+    awaiting = prev.get("awaiting_unload", False)
+    finished_at = prev.get("finished_at")
+
+    if door_open:
+        # Door open -> being loaded/unloaded; nothing is waiting.
+        return {"was_running": False, "awaiting_unload": False, "finished_at": None}
+    if running_known:
+        if running:
+            awaiting = False
+            finished_at = None
+        elif was_running:
+            awaiting = True
+            finished_at = now
+        was_running = running
+    # running_known is False -> hold everything (a transient unknown/offline read).
+    return {
+        "was_running": was_running,
+        "awaiting_unload": awaiting,
+        "finished_at": finished_at,
+    }
+
+
 def parse_time(value: str | time | None, default: time | None = None) -> time | None:
     """Parse an ``"HH:MM[:SS]"`` string (as a TimeSelector returns) into a time."""
     if isinstance(value, time):

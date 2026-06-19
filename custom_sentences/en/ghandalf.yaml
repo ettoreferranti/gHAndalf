@@ -1,0 +1,15 @@
+# gHAndalf Assist sentences.
+# Copy to your Home Assistant config dir: <config>/custom_sentences/en/ghandalf.yaml
+# Routes spoken/typed phrases to the GHandalfLaundryStatus intent that the
+# gHAndalf integration registers a handler for.
+language: "en"
+intents:
+  GHandalfLaundryStatus:
+    data:
+      - sentences:
+          - "how long (for|until|on) the (washing machine|washer|dryer|laundry|dishwasher) [(to|until) finish[ed]]"
+          - "how (long|much longer) (for|on|until) the (washing machine|washer|dryer|laundry|dishwasher)"
+          - "is the (washing machine|washer|dryer|laundry|dishwasher) (done|finished|ready|running|on|off)"
+          - "(what is|what's|whats) the (washing machine|washer|dryer|laundry|dishwasher) (status|doing|state)"
+          - "(laundry|washing machine|washer|dryer|dishwasher|appliance) status"
+          - "do I need to (empty|unload|take out) the (washing machine|washer|dryer|laundry|dishwasher)"

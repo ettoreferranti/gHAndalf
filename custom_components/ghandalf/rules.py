@@ -291,10 +291,45 @@ def rule_co2_ventilate(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]
     return out
 
 
+def rule_laundry_done(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:
+    """Nudge to unload an appliance that finished but hasn't been opened.
+
+    Reads the per-appliance cycle state the coordinator tracks. ``awaiting_unload``
+    is only set by a real finish and is already cleared once the door opens, so a
+    machine that's simply off never nudges. The nudge gate's debounce gives a few
+    minutes' grace before the first reminder, then repeats it on the cooldown.
+    """
+    out: list[AdviceCandidate] = []
+    for appliance in snapshot.get("appliances") or []:
+        if not appliance.get("awaiting_unload"):
+            continue
+        name = appliance["name"]
+        mins = appliance.get("finished_minutes_ago")
+        ago = f"{mins} minutes ago" if mins else "a moment ago"
+        out.append(
+            AdviceCandidate(
+                key=f"laundry_done:{appliance['key']}",
+                category=Category.CHORES,
+                urgency=Urgency.ACT,
+                message=(
+                    f"{name} finished {ago} and the door's still closed — "
+                    "time to take the laundry out."
+                ),
+                data={"appliance": name, "finished_minutes_ago": mins},
+            )
+        )
+    return out
+
+
 # Single-result rules (return one candidate or None).
 RULES = (rule_solar_surplus, rule_grid_price)
 # Multi-result rules (return a list of candidates).
-MULTI_RULES = (rule_dehumidifier, rule_dehumidifier_off, rule_co2_ventilate)
+MULTI_RULES = (
+    rule_dehumidifier,
+    rule_dehumidifier_off,
+    rule_co2_ventilate,
+    rule_laundry_done,
+)
 
 
 def evaluate_rules(snapshot: Snapshot, cfg: Config) -> list[AdviceCandidate]:

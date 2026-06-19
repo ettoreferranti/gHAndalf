@@ -15,6 +15,10 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from .const import (
+    CONF_APPLIANCE_DOOR_SENSORS,
+    CONF_APPLIANCE_POWER_SENSORS,
+    CONF_APPLIANCE_PROGRESS_SENSORS,
+    CONF_APPLIANCE_RUNNING_WATTS,
     CONF_BATTERY_SOC,
     CONF_CO2_SENSORS,
     CONF_CO2_THRESHOLD_PPM,
@@ -51,6 +55,7 @@ from .const import (
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
     CONF_WINDOW_SENSORS,
+    DEFAULT_APPLIANCE_RUNNING_WATTS,
     DEFAULT_CO2_THRESHOLD_PPM,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
@@ -232,6 +237,20 @@ AIR_QUALITY = Section(
     ),
 )
 
+APPLIANCES = Section(
+    "appliances",
+    (
+        Field(CONF_APPLIANCE_PROGRESS_SENSORS, _sensor("duration", multiple=True)),
+        Field(CONF_APPLIANCE_POWER_SENSORS, _sensor("power", multiple=True)),
+        Field(CONF_APPLIANCE_DOOR_SENSORS, _windows()),
+        Field(
+            CONF_APPLIANCE_RUNNING_WATTS,
+            _number(0, 5000, 5, "W"),
+            default=DEFAULT_APPLIANCE_RUNNING_WATTS,
+        ),
+    ),
+)
+
 PRESENCE = Section("presence", (Field(CONF_PERSONS, _persons()),))
 
 NOTIFICATIONS = Section(
@@ -277,6 +296,7 @@ ADVANCED = Section(
 SECTIONS: tuple[Section, ...] = (
     ENERGY,
     AIR_QUALITY,
+    APPLIANCES,
     PRESENCE,
     NOTIFICATIONS,
     ADVANCED,
