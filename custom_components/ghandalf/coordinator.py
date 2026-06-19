@@ -27,6 +27,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_APPLIANCE_DOOR_SENSORS,
+    CONF_APPLIANCE_POWER_SENSORS,
+    CONF_APPLIANCE_PROGRESS_SENSORS,
+    CONF_APPLIANCE_RUNNING_WATTS,
     CONF_BATTERY_SOC,
     CONF_CO2_SENSORS,
     CONF_CO2_THRESHOLD_PPM,
@@ -63,6 +67,7 @@ from .const import (
     CONF_VENTILATE_MAX_OUTDOOR_TEMP_C,
     CONF_VENTILATE_MIN_OUTDOOR_TEMP_C,
     CONF_WINDOW_SENSORS,
+    DEFAULT_APPLIANCE_RUNNING_WATTS,
     DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_MAX_NUDGES_PER_DAY,
@@ -78,6 +83,7 @@ from .const import (
 from .helpers import (
     get_conf,
     net_grid_w,
+    next_appliance_state,
     occupied_within,
     parse_float,
     parse_time,
@@ -128,6 +134,9 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.entry = entry
         self.gate = self._build_gate()
+        # Per-appliance cycle state (device id -> running/awaiting/finished), held
+        # across cycles so a finished-but-not-unloaded machine survives going idle.
+        self._appliance_state: dict[str, dict[str, Any]] = {}
 
     def _build_gate(self) -> NudgeGate:
         return NudgeGate(
@@ -211,6 +220,110 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device = dr.async_get(self.hass).async_get(entry.device_id)
             return device.area_id if device else None
         return None
+
+    def _device_id(self, entity_id: str) -> str | None:
+        """The HA device id an entity belongs to (None if unknown)."""
+        entry = er.async_get(self.hass).async_get(entity_id)
+        return entry.device_id if entry else None
+
+    def _device_name(self, entity_id: str) -> str:
+        """Human label for an entity's device (user name, else device name)."""
+        entry = er.async_get(self.hass).async_get(entity_id)
+        if entry and entry.device_id:
+            device = dr.async_get(self.hass).async_get(entry.device_id)
+            if device:
+                return device.name_by_user or device.name or entity_id
+        state = self.hass.states.get(entity_id)
+        return state.attributes.get("friendly_name", entity_id) if state else entity_id
+
+    def _read_appliances(self) -> list[dict[str, Any]]:
+        """Track each mapped appliance's cycle, pairing its sensors by HA device.
+
+        A "progress" (minutes-to-end) or power sensor says whether it's running; a
+        door sensor (same device) tells when it's been unloaded. The per-device
+        state machine (``next_appliance_state``) holds the finished-awaiting-unload
+        flag across the appliance going offline after a cycle.
+        """
+        watts = float(
+            get_conf(
+                self.entry,
+                CONF_APPLIANCE_RUNNING_WATTS,
+                DEFAULT_APPLIANCE_RUNNING_WATTS,
+            )
+        )
+        progress: dict[str, float | None] = {}
+        power: dict[str, float | None] = {}
+        door: dict[str, bool | None] = {}
+        names: dict[str, str] = {}
+
+        for entity_id in get_conf(self.entry, CONF_APPLIANCE_PROGRESS_SENSORS) or []:
+            dev = self._device_id(entity_id)
+            if dev is None:
+                continue
+            state = self.hass.states.get(entity_id)
+            progress[dev] = parse_float(state.state) if state else None
+            names.setdefault(dev, self._device_name(entity_id))
+        for entity_id in get_conf(self.entry, CONF_APPLIANCE_POWER_SENSORS) or []:
+            dev = self._device_id(entity_id)
+            if dev is None:
+                continue
+            state = self.hass.states.get(entity_id)
+            power[dev] = parse_float(state.state) if state else None
+            names.setdefault(dev, self._device_name(entity_id))
+        for entity_id in get_conf(self.entry, CONF_APPLIANCE_DOOR_SENSORS) or []:
+            dev = self._device_id(entity_id)
+            if dev is None:
+                continue
+            state = self.hass.states.get(entity_id)
+            door[dev] = (
+                state.state == "on" if state and state.state in ("on", "off") else None
+            )
+            names.setdefault(dev, self._device_name(entity_id))
+
+        now = dt_util.now()
+        anchors = set(progress) | set(power)
+        appliances: list[dict[str, Any]] = []
+        for dev in anchors:
+            mins = progress.get(dev)
+            watts_now = power.get(dev)
+            if mins is not None:
+                running_known, running, minutes = True, mins > 0, mins
+            elif watts_now is not None:
+                running_known, running, minutes = True, watts_now >= watts, None
+            else:
+                running_known, running, minutes = False, False, None
+            door_open = door.get(dev)
+            state = next_appliance_state(
+                self._appliance_state.get(dev, {}),
+                running_known,
+                running,
+                door_open,
+                now,
+            )
+            self._appliance_state[dev] = state
+            finished_at = state["finished_at"]
+            appliances.append(
+                {
+                    "key": dev,
+                    "name": names.get(dev, dev),
+                    "running": running if running_known else None,
+                    "minutes_left": round(minutes)
+                    if running_known and running and minutes is not None
+                    else None,
+                    "awaiting_unload": state["awaiting_unload"],
+                    "finished_minutes_ago": round(
+                        (now - finished_at).total_seconds() / 60
+                    )
+                    if finished_at is not None
+                    else None,
+                    "door_open": door_open,
+                }
+            )
+        # Forget devices that are no longer mapped.
+        self._appliance_state = {
+            dev: s for dev, s in self._appliance_state.items() if dev in anchors
+        }
+        return appliances
 
     def _room_name(self, entity_id: str) -> str:
         """Human-readable room for an entity: its HA area, else friendly name.
@@ -432,6 +545,7 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         values["unavailable_roles"] = unavailable
         values["dehumidifier_rooms"] = self._read_dehumidifier_rooms()
         values["co2_rooms"] = self._read_co2_rooms()
+        values["appliances"] = self._read_appliances()
         values["outdoor_temp"] = self._first_available(CONF_OUTDOOR_TEMP_SENSORS)
         values["outdoor_humidity"] = self._first_available(
             CONF_OUTDOOR_HUMIDITY_SENSORS

@@ -26,6 +26,7 @@
         "menu_options": {
           "energy": "Energy & solar",
           "air_quality": "Air quality & comfort",
+          "appliances": "Appliances",
           "presence": "People & presence",
           "notifications": "Notifications",
           "advanced": "Nudges & timing"
@@ -97,6 +98,22 @@
           "occupancy_grace_minutes": "How long after the last motion a room still counts as occupied, so a sitting-still person isn't treated as gone. Default 15."
         }
       },
+      "appliances": {
+        "title": "Appliances",
+        "description": "Track a washing machine, dryer, or dishwasher so gHAndalf can remind you to unload it. Sensors are grouped into appliances by their HA device.",
+        "data": {
+          "appliance_progress_sensors": "Time-to-end sensors",
+          "appliance_power_sensors": "Power sensors",
+          "appliance_door_sensors": "Door sensors",
+          "appliance_running_watts": "Power = running"
+        },
+        "data_description": {
+          "appliance_progress_sensors": "One per appliance — a 'minutes remaining' / time-to-end sensor (from a smart appliance). Above zero means running; dropping to zero means the cycle finished.",
+          "appliance_power_sensors": "Alternative for plug-monitored machines with no time-to-end: a power sensor. Running when it draws more than the threshold below.",
+          "appliance_door_sensors": "Optional, paired by device. When the door opens, gHAndalf knows the appliance was unloaded and stops reminding.",
+          "appliance_running_watts": "Plug draw above which a power-monitored appliance counts as running. Default 10."
+        }
+      },
       "presence": {
         "title": "People & presence",
         "data": {
@@ -146,6 +163,9 @@
       "net_grid_power": { "name": "Net grid power" },
       "active_advice": { "name": "Active advice" },
       "status": { "name": "Status" }
+    },
+    "binary_sensor": {
+      "laundry_ready": { "name": "Laundry ready" }
     }
   }
 }

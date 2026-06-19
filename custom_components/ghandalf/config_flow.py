@@ -66,6 +66,9 @@ class GHandalfOptionsFlow(OptionsFlow):
     async def async_step_air_quality(self, user_input=None) -> ConfigFlowResult:
         return await self._edit(SECTION_BY_ID["air_quality"], user_input)
 
+    async def async_step_appliances(self, user_input=None) -> ConfigFlowResult:
+        return await self._edit(SECTION_BY_ID["appliances"], user_input)
+
     async def async_step_presence(self, user_input=None) -> ConfigFlowResult:
         return await self._edit(SECTION_BY_ID["presence"], user_input)
 

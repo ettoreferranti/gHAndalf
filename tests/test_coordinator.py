@@ -8,6 +8,7 @@ from datetime import timedelta
 from freezegun import freeze_time
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -16,6 +17,8 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.ghandalf.const import (
+    CONF_APPLIANCE_DOOR_SENSORS,
+    CONF_APPLIANCE_PROGRESS_SENSORS,
     CONF_BATTERY_SOC,
     CONF_CO2_SENSORS,
     CONF_CONSUMPTION_POWER,
@@ -485,6 +488,82 @@ async def test_grid_price_advice_fires_and_stays_silent_when_flat(
     await entry.runtime_data.async_refresh()
     keys = [a["key"] for a in entry.runtime_data.data["advice"]]
     assert not any(k.startswith("grid_price_") for k in keys)
+
+
+async def test_appliance_laundry_lifecycle(hass: HomeAssistant) -> None:
+    """Run -> finish -> held-while-offline -> door opens, end to end via the device."""
+    hass.states.async_set("sensor.pv", "0", _POWER_ATTRS)  # no solar surplus
+    hass.states.async_set("sensor.cons", "0", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_APPLIANCE_PROGRESS_SENSORS: ["sensor.washer_time"],
+            CONF_APPLIANCE_DOOR_SENSORS: ["binary_sensor.washer_door"],
+            CONF_DEBOUNCE_SECONDS: 0,
+            CONF_QUIET_START: "00:00:00",
+            CONF_QUIET_END: "00:00:00",
+        },
+    )
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("test", "washer")},
+        name="Lavatrice 1",
+    )
+    reg = er.async_get(hass)
+    t = reg.async_get_or_create(
+        "sensor",
+        "test",
+        "wtime",
+        suggested_object_id="washer_time",
+        device_id=device.id,
+    )
+    d = reg.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "wdoor",
+        suggested_object_id="washer_door",
+        device_id=device.id,
+    )
+    _DUR = {"device_class": "duration", "unit_of_measurement": "min"}
+    hass.states.async_set(t.entity_id, "5", _DUR)  # 5 min left, running
+    hass.states.async_set(d.entity_id, "off", {"device_class": "door"})  # closed
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    app = entry.runtime_data.data["appliances"][0]
+    assert app["name"] == "Lavatrice 1"
+    assert app["running"] is True and app["minutes_left"] == 5
+    assert app["awaiting_unload"] is False
+    assert hass.states.get("binary_sensor.ghandalf_laundry_ready").state == "off"
+
+    # Cycle finishes (time-to-end -> 0) -> awaiting unload + advice + binary on.
+    hass.states.async_set(t.entity_id, "0", _DUR)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["appliances"][0]["awaiting_unload"] is True
+    advice = entry.runtime_data.data["advice"]
+    assert any(a["key"] == f"laundry_done:{device.id}" for a in advice)
+    assert hass.states.get("binary_sensor.ghandalf_laundry_ready").state == "on"
+
+    # Machine goes offline (sensor unavailable) -> awaiting is HELD.
+    hass.states.async_set(t.entity_id, "unavailable", _DUR)
+    await entry.runtime_data.async_refresh()
+    assert entry.runtime_data.data["appliances"][0]["awaiting_unload"] is True
+
+    # Door opens -> unloaded -> cleared, advice gone, binary off.
+    hass.states.async_set(d.entity_id, "on", {"device_class": "door"})
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["appliances"][0]["awaiting_unload"] is False
+    advice = entry.runtime_data.data["advice"]
+    assert not any(a["key"].startswith("laundry_done:") for a in advice)
+    assert hass.states.get("binary_sensor.ghandalf_laundry_ready").state == "off"
 
 
 def _nudge_entry(**extra) -> MockConfigEntry:

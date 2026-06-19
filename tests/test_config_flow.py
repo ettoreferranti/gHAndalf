@@ -54,6 +54,7 @@ async def test_options_menu_lists_sections(hass: HomeAssistant) -> None:
     assert set(result["menu_options"]) == {
         "energy",
         "air_quality",
+        "appliances",
         "presence",
         "notifications",
         "advanced",

@@ -12,6 +12,7 @@ from custom_components.ghandalf.helpers import (
     get_conf,
     in_quiet_hours,
     net_grid_w,
+    next_appliance_state,
     occupied_within,
     parse_float,
     parse_time,
@@ -189,3 +190,46 @@ def test_occupied_within(state, minutes_ago, expected):
 
 def test_occupied_within_off_with_no_timestamp_is_not_occupied():
     assert occupied_within("off", None, _NOW, 15) is False
+
+
+# --- appliance cycle state machine ------------------------------------------
+def test_appliance_running_marks_was_running():
+    assert next_appliance_state({}, True, True, None, _NOW) == {
+        "was_running": True,
+        "awaiting_unload": False,
+        "finished_at": None,
+    }
+
+
+def test_appliance_finish_arms_awaiting_unload():
+    prev = {"was_running": True, "awaiting_unload": False, "finished_at": None}
+    s = next_appliance_state(prev, True, False, None, _NOW)
+    assert s == {"was_running": False, "awaiting_unload": True, "finished_at": _NOW}
+
+
+def test_appliance_idle_never_arms():
+    # Never ran (was_running False) and still not running -> nothing waiting.
+    s = next_appliance_state({}, True, False, None, _NOW)
+    assert s == {"was_running": False, "awaiting_unload": False, "finished_at": None}
+
+
+def test_appliance_holds_awaiting_through_unknown_reading():
+    # Machine drops offline after finishing (running_known False) -> state held.
+    prev = {"was_running": False, "awaiting_unload": True, "finished_at": _NOW}
+    later = _NOW + timedelta(minutes=20)
+    assert next_appliance_state(prev, False, False, None, later) == prev
+
+
+def test_appliance_door_open_clears_awaiting():
+    prev = {"was_running": False, "awaiting_unload": True, "finished_at": _NOW}
+    assert next_appliance_state(prev, True, False, True, _NOW) == {
+        "was_running": False,
+        "awaiting_unload": False,
+        "finished_at": None,
+    }
+
+
+def test_appliance_restart_clears_awaiting():
+    prev = {"was_running": False, "awaiting_unload": True, "finished_at": _NOW}
+    s = next_appliance_state(prev, True, True, None, _NOW)
+    assert s == {"was_running": True, "awaiting_unload": False, "finished_at": None}
