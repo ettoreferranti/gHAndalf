@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .coordinator import GHandalfCoordinator
-from .intent import async_register_intents
+from .intent import async_setup_intents
 
 type GHandalfConfigEntry = ConfigEntry[GHandalfCoordinator]
 
@@ -22,7 +22,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GHandalfConfigEntry) -> 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_on_update))
-    async_register_intents(hass)
+    await async_setup_intents(hass)
     return True
 
 

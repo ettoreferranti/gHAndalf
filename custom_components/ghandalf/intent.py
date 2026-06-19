@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
 from .const import DOMAIN
@@ -62,7 +62,11 @@ class LaundryStatusIntentHandler(intent.IntentHandler):
         return response
 
 
-@callback
-def async_register_intents(hass: HomeAssistant) -> None:
-    """Register gHAndalf's Assist intents (idempotent across reloads)."""
+async def async_setup_intents(hass: HomeAssistant) -> None:
+    """Register gHAndalf's Assist intents.
+
+    This is the standard intent-platform hook Home Assistant auto-discovers for
+    a custom component's ``intent.py``; we also call it from setup so the handler
+    is registered even before the conversation/intent platform initialises.
+    """
     intent.async_register(hass, LaundryStatusIntentHandler())
