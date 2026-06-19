@@ -23,6 +23,24 @@ from .models import AdviceCandidate, Category
 _HISTORY_RETENTION = timedelta(days=2)  # pragma: no mutate
 
 
+def _parse_dt(raw: object) -> datetime | None:
+    """Parse an ISO datetime string from the store, or None if it won't parse."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _parse_category(raw: object) -> Category | None:
+    """Parse a persisted category value, tolerating an unknown/renamed one."""
+    try:
+        return Category(raw)
+    except ValueError:
+        return None
+
+
 class NudgeGate:
     """Decides which advice candidates are allowed to fire on a given cycle."""
 
@@ -45,6 +63,41 @@ class NudgeGate:
         self._first_seen: dict[str, datetime] = {}
         self._last_fired: dict[str, datetime] = {}
         self._fired: list[tuple[datetime, Category]] = []
+
+    def snapshot(self) -> dict[str, object]:
+        """Serialize the persist-worthy state (cooldown + today's budget history).
+
+        Debounce timers (``_first_seen``) are intentionally left out: restarting
+        them after a reload is harmless and arguably correct (a condition should
+        have to re-persist before it fires). Datetimes serialize as ISO strings.
+        """
+        return {
+            "last_fired": {key: ts.isoformat() for key, ts in self._last_fired.items()},
+            "fired": [[ts.isoformat(), str(cat)] for ts, cat in self._fired],
+        }
+
+    def restore(self, data: dict[str, object]) -> None:
+        """Rehydrate cooldown + budget history from a :meth:`snapshot`.
+
+        Defensive against a malformed/stale store: anything that won't parse is
+        skipped rather than crashing setup. Old history is pruned the same way
+        ``evaluate`` does, on the next cycle.
+        """
+        last_fired = data.get("last_fired")
+        if isinstance(last_fired, dict):
+            for key, raw in last_fired.items():
+                ts = _parse_dt(raw)
+                if ts is not None:
+                    self._last_fired[key] = ts
+        fired = data.get("fired")
+        if isinstance(fired, list):
+            for entry in fired:
+                if not isinstance(entry, list | tuple) or len(entry) != 2:
+                    continue
+                ts = _parse_dt(entry[0])
+                category = _parse_category(entry[1])
+                if ts is not None and category is not None:
+                    self._fired.append((ts, category))
 
     def evaluate(
         self,

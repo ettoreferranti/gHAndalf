@@ -164,3 +164,56 @@ def test_full_category_does_not_block_another_category():
         NOON + timedelta(minutes=1),
     )
     assert keys(fired) == {"b"}  # energy blocked, air-quality still allowed
+
+
+def test_snapshot_restore_preserves_cooldown():
+    """A nudge on cooldown stays on cooldown after a snapshot/restore round-trip."""
+    g = make_gate(debounce_seconds=0, cooldown_minutes=60)
+    assert keys(g.evaluate([cand()], NOON)) == {"solar_surplus"}  # fires, now cooling
+
+    restored = make_gate(debounce_seconds=0, cooldown_minutes=60)
+    restored.restore(g.snapshot())
+    # Still within the cooldown window -> must not re-fire on the fresh instance.
+    assert restored.evaluate([cand()], NOON + timedelta(minutes=30)) == []
+    assert keys(restored.evaluate([cand()], NOON + timedelta(minutes=60))) == {
+        "solar_surplus"
+    }
+
+
+def test_snapshot_restore_preserves_daily_budget():
+    """Today's spent budget survives a round-trip (restart doesn't refill it)."""
+    g = make_gate(debounce_seconds=0, max_per_day=1, cooldown_minutes=60)
+    assert len(g.evaluate([cand("a")], NOON)) == 1  # global cap now spent
+
+    restored = make_gate(debounce_seconds=0, max_per_day=1, cooldown_minutes=60)
+    restored.restore(g.snapshot())
+    # Same day, budget already spent before the "restart" -> nothing more fires.
+    assert restored.evaluate([cand("b")], NOON + timedelta(minutes=5)) == []
+    # Next day the restored history rolls over.
+    assert len(restored.evaluate([cand("b")], NOON + timedelta(days=1))) == 1
+
+
+def test_restore_ignores_malformed_state():
+    """A corrupt/partial store must not crash restore; bad entries are skipped."""
+    g = make_gate(debounce_seconds=0, cooldown_minutes=60)
+    g.restore(
+        {
+            "last_fired": {"a": "not-a-date", "b": NOON.isoformat()},
+            "fired": [
+                ["nope", "energy"],  # bad datetime
+                [NOON.isoformat(), "not-a-category"],  # bad category
+                [NOON.isoformat()],  # wrong arity
+                "junk",  # not a pair
+                [NOON.isoformat(), "energy"],  # the one good entry
+            ],
+        }
+    )
+    # "b" parsed -> still cooling; "a" was dropped -> free to fire.
+    fired = g.evaluate([cand("a"), cand("b")], NOON + timedelta(minutes=5))
+    assert keys(fired) == {"a"}
+
+
+def test_restore_tolerates_empty_and_missing_keys():
+    g = make_gate(debounce_seconds=0)
+    g.restore({})  # no keys at all
+    assert keys(g.evaluate([cand()], NOON)) == {"solar_surplus"}

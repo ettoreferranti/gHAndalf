@@ -11,6 +11,16 @@ from typing import Final
 
 DOMAIN: Final = "ghandalf"
 
+# --- Persisted state (survives restart/reload) ------------------------------
+# Nudge cooldown/budget history and appliance cycle state are written to a
+# per-entry Store so an HA restart doesn't wipe anti-fatigue throttling or
+# forget a load that finished just before the restart. Bump the version only
+# on an incompatible on-disk schema change.
+STORAGE_VERSION: Final = 1
+# Debounce window for the delayed save — batches the writes the ~30s poll would
+# otherwise trigger so we don't thrash the disk.
+STORAGE_SAVE_DELAY: Final = 15  # seconds
+
 # --- Configuration keys (entity-role mapping) -------------------------------
 # Energy / solar roles. Each maps a gHAndalf "role" to a real HA entity id,
 # chosen by the user in the UI. The component reads live state from these.
