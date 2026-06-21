@@ -17,6 +17,9 @@ PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 async def async_setup_entry(hass: HomeAssistant, entry: GHandalfConfigEntry) -> bool:
     """Set up gHAndalf from a config entry."""
     coordinator = GHandalfCoordinator(hass, entry)
+    # Restore persisted cooldown/budget + appliance state before the first poll,
+    # so a restart doesn't wipe throttling or forget a load awaiting unload.
+    await coordinator.async_load_persisted()
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
@@ -28,6 +31,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GHandalfConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: GHandalfConfigEntry) -> bool:
     """Unload a config entry."""
+    # Flush any pending delayed save before the coordinator goes away, so a
+    # reload (e.g. an options change) doesn't lose the latest state.
+    await entry.runtime_data.async_save_now()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

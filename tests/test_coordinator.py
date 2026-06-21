@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from freezegun import freeze_time
 from homeassistant.core import HomeAssistant
@@ -44,6 +44,10 @@ from custom_components.ghandalf.const import (
     CONF_REQUIRE_OCCUPANCY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
+)
+from custom_components.ghandalf.coordinator import (
+    _deserialize_appliance_state,
+    _serialize_appliance_state,
 )
 
 _POWER_ATTRS = {"device_class": "power", "unit_of_measurement": "W"}
@@ -685,3 +689,119 @@ async def test_slow_notifier_does_not_stall_updates(hass: HomeAssistant) -> None
 
     release.set()  # let the background notify task finish so teardown is clean
     await hass.async_block_till_done()
+
+
+def test_appliance_state_round_trips() -> None:
+    """Serialize -> deserialize restores the cycle state, datetimes and all."""
+    finished = datetime(2026, 6, 19, 14, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    state = {
+        "dev1": {
+            "was_running": False,
+            "awaiting_unload": True,
+            "finished_at": finished,
+        },
+        "dev2": {"was_running": True, "awaiting_unload": False, "finished_at": None},
+    }
+    restored = _deserialize_appliance_state(_serialize_appliance_state(state))
+    assert restored == state
+
+
+def test_deserialize_appliance_state_skips_garbage() -> None:
+    """A corrupt store entry is dropped rather than crashing setup."""
+    restored = _deserialize_appliance_state(
+        {
+            "ok": {"awaiting_unload": True, "finished_at": "not-a-date"},
+            "bad": "not-a-dict",
+        }
+    )
+    # "bad" dropped; "ok" kept with the unparseable datetime nulled out.
+    assert restored == {
+        "ok": {"was_running": False, "awaiting_unload": True, "finished_at": None}
+    }
+
+
+async def test_appliance_awaiting_unload_survives_reload(hass: HomeAssistant) -> None:
+    """A load that finished before a reload is still remembered afterwards.
+
+    Without persistence, the fresh coordinator would never have seen the
+    running->finished transition (the machine is offline on boot) and would
+    forget the waiting laundry — exactly the restart wrinkle this slice fixes.
+    """
+    hass.states.async_set("sensor.pv", "0", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "0", _POWER_ATTRS)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_PV_POWER: "sensor.pv",
+            CONF_CONSUMPTION_POWER: "sensor.cons",
+            CONF_APPLIANCE_PROGRESS_SENSORS: ["sensor.washer_time"],
+            CONF_APPLIANCE_DOOR_SENSORS: ["binary_sensor.washer_door"],
+            CONF_DEBOUNCE_SECONDS: 0,
+            CONF_QUIET_START: "00:00:00",
+            CONF_QUIET_END: "00:00:00",
+        },
+    )
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("test", "washer")},
+        name="Lavatrice 1",
+    )
+    reg = er.async_get(hass)
+    t = reg.async_get_or_create(
+        "sensor",
+        "test",
+        "wtime",
+        suggested_object_id="washer_time",
+        device_id=device.id,
+    )
+    d = reg.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "wdoor",
+        suggested_object_id="washer_door",
+        device_id=device.id,
+    )
+    _DUR = {"device_class": "duration", "unit_of_measurement": "min"}
+    hass.states.async_set(t.entity_id, "5", _DUR)  # running
+    hass.states.async_set(d.entity_id, "off", {"device_class": "door"})
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Cycle finishes -> awaiting unload, then the smart appliance drops offline.
+    hass.states.async_set(t.entity_id, "0", _DUR)
+    await entry.runtime_data.async_refresh()
+    assert entry.runtime_data.data["appliances"][0]["awaiting_unload"] is True
+    hass.states.async_set(t.entity_id, "unavailable", _DUR)
+    await entry.runtime_data.async_refresh()
+
+    # Reload (unload flushes the store; setup rehydrates it). The sensor is still
+    # offline, so the only way to know laundry waits is the persisted state.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.data["appliances"][0]["awaiting_unload"] is True
+    advice = entry.runtime_data.data["advice"]
+    assert any(a["key"] == f"laundry_done:{device.id}" for a in advice)
+
+
+async def test_nudge_cooldown_survives_reload(hass: HomeAssistant) -> None:
+    """A nudge on cooldown stays quiet after a reload (no re-push on restart)."""
+    calls = async_mock_service(hass, "notify", "send_message")
+    hass.states.async_set("sensor.pv", "3000", _POWER_ATTRS)
+    hass.states.async_set("sensor.cons", "1000", _POWER_ATTRS)
+
+    entry = _nudge_entry(**{CONF_NOTIFY_TARGETS: ["notify.phone"]})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert len(calls) == 1  # fired once, now on cooldown
+
+    # Reload: the still-true surplus condition must not re-push — cooldown persisted.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["advice"][0]["key"] == "solar_surplus"  # still seen
+    assert len(calls) == 1  # but no duplicate push

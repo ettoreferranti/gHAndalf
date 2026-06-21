@@ -7,7 +7,7 @@ to a vendor API. Each cycle it also runs the rule engine and the nudge gate.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -23,6 +23,7 @@ from homeassistant.helpers import (
 from homeassistant.helpers import (
     entity_registry as er,
 )
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -79,6 +80,8 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     NOTIFY_TITLE,
+    STORAGE_SAVE_DELAY,
+    STORAGE_VERSION,
 )
 from .helpers import (
     get_conf,
@@ -121,6 +124,46 @@ _RULE_CONFIG_KEYS = (
 )
 
 
+def _serialize_appliance_state(
+    state: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """JSON-friendly form of the appliance cycle state (datetime -> ISO)."""
+    out: dict[str, dict[str, Any]] = {}
+    for dev, s in state.items():
+        finished_at = s.get("finished_at")
+        out[dev] = {
+            "was_running": bool(s.get("was_running", False)),
+            "awaiting_unload": bool(s.get("awaiting_unload", False)),
+            "finished_at": finished_at.isoformat()
+            if isinstance(finished_at, datetime)
+            else None,
+        }
+    return out
+
+
+def _deserialize_appliance_state(
+    data: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Rebuild appliance cycle state from the store, skipping malformed entries."""
+    out: dict[str, dict[str, Any]] = {}
+    for dev, s in data.items():
+        if not isinstance(s, dict):
+            continue
+        raw = s.get("finished_at")
+        finished_at: datetime | None = None
+        if isinstance(raw, str):
+            try:
+                finished_at = datetime.fromisoformat(raw)
+            except ValueError:
+                finished_at = None
+        out[dev] = {
+            "was_running": bool(s.get("was_running", False)),
+            "awaiting_unload": bool(s.get("awaiting_unload", False)),
+            "finished_at": finished_at,
+        }
+    return out
+
+
 class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Reads mapped entities on an interval and derives coaching inputs."""
 
@@ -137,6 +180,50 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Per-appliance cycle state (device id -> running/awaiting/finished), held
         # across cycles so a finished-but-not-unloaded machine survives going idle.
         self._appliance_state: dict[str, dict[str, Any]] = {}
+        # Persist cooldown/budget + appliance state across restart/reload. One
+        # Store per config entry; a delayed save batches the ~30s poll's writes.
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
+        )
+        # Last data we asked the store to write, so an idle cycle (nothing
+        # changed) doesn't schedule a redundant disk write.
+        self._last_persisted: dict[str, Any] | None = None
+
+    async def async_load_persisted(self) -> None:
+        """Hydrate the gate + appliance state from the store, before first refresh.
+
+        Tolerant of a missing or partial file: a fresh install just starts empty.
+        """
+        data = await self._store.async_load()
+        if not data:
+            return
+        gate_state = data.get("gate")
+        if isinstance(gate_state, dict):
+            self.gate.restore(gate_state)
+        appliances = data.get("appliances")
+        if isinstance(appliances, dict):
+            self._appliance_state = _deserialize_appliance_state(appliances)
+        self._last_persisted = self._persisted_data()
+
+    def _persisted_data(self) -> dict[str, Any]:
+        """The full snapshot written to the store."""
+        return {
+            "gate": self.gate.snapshot(),
+            "appliances": _serialize_appliance_state(self._appliance_state),
+        }
+
+    def _schedule_save(self) -> None:
+        """Schedule a debounced save, but only when the state actually changed."""
+        data = self._persisted_data()
+        if data == self._last_persisted:
+            return
+        self._last_persisted = data
+        self._store.async_delay_save(self._persisted_data, STORAGE_SAVE_DELAY)
+
+    async def async_save_now(self) -> None:
+        """Flush any pending save immediately (called on unload/reload)."""
+        await self._store.async_save(self._persisted_data())
+        self._last_persisted = self._persisted_data()
 
     def _build_gate(self) -> NudgeGate:
         return NudgeGate(
@@ -559,6 +646,11 @@ class GHandalfCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         values["presence_home"] = presence_home
         values["advice"] = [c.as_dict() for c in candidates]
         values["pending_nudges"] = [c.key for c in fired]
+
+        # Persist cooldown/budget + appliance state so a restart doesn't wipe
+        # throttling or forget a load that finished just before it. Debounced and
+        # change-gated, so an idle cycle costs nothing.
+        self._schedule_save()
 
         # Deliver last, after the data is fully built, so notification behaviour
         # can never affect the snapshot the rest of HA sees.
